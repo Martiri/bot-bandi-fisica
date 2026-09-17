@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bandi UniBo Fisica 3° Anno - 17/09/2026</title>
+<style>
+  :root {
+    --unibo-red: #bb2e29;
+    --unibo-dark: #8b1d19;
+    --bg: #f8f9fa;
+    --card-bg: #ffffff;
+    --text: #212529;
+    --muted: #6c757d;
+    --border: #e9ecef;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    margin: 0;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  header {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    border-left: 6px solid var(--unibo-red);
+  }
+  h1 {
+    margin: 0 0 8px 0;
+    color: var(--unibo-red);
+    font-size: 1.8rem;
+  }
+  .subtitle {
+    color: var(--muted);
+    margin: 0 0 16px 0;
+  }
+  .stats {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .stat-badge {
+    background: #f1f3f5;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .stat-badge.highlight {
+    background: #ffe3e3;
+    color: var(--unibo-red);
+  }
+  .stat-badge.warning {
+    background: #fff3bf;
+    color: #d9480f;
+  }
+  .search-bar {
+    margin-bottom: 20px;
+  }
+  .search-input {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid #ced4da;
+    font-size: 1rem;
+    box-sizing: border-box;
+  }
+  .table-card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+  }
+  th, td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: #f1f3f5;
+    font-weight: 600;
+    color: #495057;
+  }
+  tr:hover {
+    background-color: #fdfdfe;
+  }
+  .badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .badge-category { background: #e3f2fd; color: #0d47a1; }
+  .badge-urgent { background: #ffe3e3; color: #c92a2a; }
+  .badge-warn { background: #fff3bf; color: #d9480f; }
+  .badge-ok { background: #e8f5e9; color: #2b8a3e; }
+  .badge-open { background: #f3f0ff; color: #5f3dc4; }
+  .btn {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    text-decoration: none;
+    font-weight: 600;
+    margin-right: 6px;
+    margin-top: 4px;
+  }
+  .btn-primary {
+    background: var(--unibo-red);
+    color: white;
+  }
+  .btn-secondary {
+    background: #495057;
+    color: white;
+  }
+  .btn:hover {
+    opacity: 0.9;
+  }
+  .sintesi {
+    font-size: 0.88rem;
+    color: #495057;
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>🎓 Bandi e Opportunità UniBo — Fisica Triennale (3° Anno)</h1>
+    <p class="subtitle">Monitoraggio autonomo per il Corso di Laurea in Fisica (Codice <code>9244</code>) | Ultimo controllo: <strong>17/09/2026 alle 19:14</strong></p>
+    <div class="stats">
+      <span class="stat-badge">📋 Totale bandi attivi: 13</span>
+      <span class="stat-badge ">✨ Nuovi oggi: 0</span>
+      <span class="stat-badge ">⏰ In scadenza imminente: 0</span>
+    </div>
+  </header>
+
+  <div class="search-bar">
+    <input type="text" id="searchInput" class="search-input" placeholder="🔍 Cerca per bando, categoria, parola chiave (es. STEAM, tutorato, esonero)..." onkeyup="filterTable()">
+  </div>
+
+  <div class="table-card">
+    <table id="bandiTable">
+      <thead>
+        <tr>
+          <th style="width: 45px;">#</th>
+          <th>Bando & Finalità</th>
+          <th>Categoria</th>
+          <th>Scadenza</th>
+          <th style="min-width: 170px;">Azioni</th>
+        </tr>
+      </thead>
+      <tbody>
+
+        <tr>
+          <td><strong>1</strong></td>
+          <td>
+            <strong><a href="https://bandi.unibo.it/s/abis1/bando-di-concorso-per-l-assegnazione-di-incentivi-agli-iscritti-all-anno-accademico-2026-2027-immatricolati-nell-anno-accademico-2025-2026-a-corsi-di-studio-delle-classi-steam" target="_blank" style="color: #bb2e29; text-decoration: none;">Bando di concorso per l’assegnazione di incentivi agli iscritti all’anno accademico 2026/2027 immatricolati nell’anno accademico 2025/2026 a corsi di studio delle classi STEAM</a></strong>
+            <div class="sintesi">L’Alma Mater Studiorum – Università di Bologna, istituisce un concorso per l’assegnazione di incentivi per l’iscrizione ai corsi di studio , non a programmazione nazionale, afferenti alle classi STEAM (Science Technology Engineering Art Mathematics), ai sensi delle disposizioni di cui alla L. 170/2003. I fondi disponibili per l’intervento ammontano a 675.886,15 € e sono ripartiti per ciascuna classe in proporzione al numero di immatricolati nell’…</div>
+          </td>
+          <td><span class="badge badge-category">Bandi DIFA / Dipartimento</span></td>
+          <td>
+            <span class="badge badge-ok">Scadenza: 27 ottobre 2026, 12:00</span>
+            <br><small style='color: #2b8a3e;'>Mancano 40 giorni</small>
+          </td>
+          <td>
+            <a href="https://bandi.unibo.it/s/abis1/bando-di-concorso-per-l-assegnazione-di-incentivi-agli-iscritti-all-anno-accademico-2026-2027-immatricolati-nell-anno-accademico-2025-2026-a-corsi-di-studio-delle-classi-steam" target="_blank" class="btn btn-primary">🔗 Scheda</a>
+            <a href='https://bandi.unibo.it/s/abis1/bando-di-concorso-per-l-assegnazione-di-incentivi-agli-iscritti-all-anno-accademico-2026-2027-immatricolati-nell-anno-accademico-2025-2026-a-corsi-di-studio-delle-classi-steam/bando/bando-incentivi-corsi-steam-imm-25-26.pdf/@@download/file/Bando Incentivi Corsi STEAM Imm. 25-26.pdf' target='_blank' class='btn btn-secondary'>📄 Scarica PDF</a>
+          </td>
+        </tr>
+
+        <tr>
+          <td><strong>2</strong></td>
+          <td>
+            <strong><a href="https://bandi.unibo.it/s/amministrazione-generale/esoneri-e-riduzioni-dalle-tasse-in-base-alla-tua-situazione-economica" target="_blank" style="color: #bb2e29; text-decoration: none;">Esoneri e riduzioni dalle tasse in base alla tua situazione economica</a></strong>
+            <div class="sintesi">Tu sei qui: Home / Borse di studio, esoneri, bandi di mobilità e assegni di tutorato alla pari Esoneri e riduzioni dalle tasse in base alla tua situazione economica scadenza: 30 ottobre 2026, 18:00 Mi interessa se: Studio al primo anno, Studio dal secondo anno in poi, Ho una laurea Mi voglio iscrivere a un corso dell'Università di Bologna nell'a.a. 2026/27. Tipo di corso: Laurea, Laurea magistrale a ciclo unico, Laurea magistrale Requisiti per pa…</div>
+          </td>
+          <td><span class="badge badge-category">Riduzione delle tasse: esoneri e incentivi</span></td>
+          <td>
+            <span class="badge badge-ok">Scadenza: 30 ottobre 2026, 18:00</span>
+            <br><small style='color: #2b8a3e;'>Mancano 43 giorni</small>
+          </td>
+          <td>
+            <a href="https://bandi.unibo.it/s/amministrazione-generale/esoneri-e-riduzioni-dalle-tasse-in-base-alla-tua-situazione-economica" target="_blank" class="btn btn-primary">🔗 Scheda</a>
+            
+          </td>
+        </tr>
+
+        <tr>
+          <td><strong>3</strong></td>
+          <td>
+            <strong><a href="https://bandi.unibo.it/s/amministrazione-generale/incentivi-per-studentesse-e-studenti-iscritti-ai-corsi-di-studio-appartenenti-alle-classi-steam" target="_blank" style="color: #bb2e29; text-decoration: none;">Incentivi per studentesse e studenti iscritti ai corsi di studio appartenenti alle classi STEAM</a></strong>
+            <div class="sintesi">Tu sei qui: Home / Borse di studio, esoneri, bandi di mobilità e assegni di tutorato alla pari Incentivi per studentesse e studenti iscritti ai corsi di studio appartenenti alle classi STEAM Mi interessa se: Studio dal secondo anno in poi, Ho una laurea Sono iscritto o iscritta all’Università di Bologna al II anno nell’a.a. 2026/2027 e mi sono immatricolato o immatricolata nell’anno accademico 2025/2026 a uno dei corsi appartenenti alle classi ST…</div>
+          </td>
+          <td><span class="badge badge-category">Prossimi bandi in uscita</span></td>
+          <td>
+            <span class="badge badge-ok">Periodo: settembre - ottobre 2026</span>
+            <br><small style='color: #2b8a3e;'>Mancano 44 giorni</small>
+          </td>
+          <td>
+            <a href="https://bandi.unibo.it/s/amministrazione-generale/incentivi-per-studentesse-e-studenti-iscritti-ai-corsi-di-studio-appartenenti-alle-classi-steam" target="_blank" class="btn btn-primary">🔗 Scheda</a>
+            
+          </td>
+        </tr>
+
+        <tr>
+          <td><strong>4</strong></td>
+          <td>
+            <strong><a href="https://bandi.unibo.it/s/amministrazione-generale/esonero-totale-per-chi-appartiene-a-un-ordine-religioso" target="_blank" style="color: #bb2e29; text-decoration: none;">Esonero totale per chi appartiene a un ordine religioso</a></strong>
+            <div class="sintesi">Tu sei qui: Home / Borse di studio, esoneri, bandi di mobilità e assegni di tutorato alla pari Esonero totale per chi appartiene a un ordine religioso scadenza: 16 novembre 2026, 18:00 Mi interessa se: Studio al primo anno, Studio dal secondo anno in poi, Ho una laurea Se fai parte in modo permanente di un ordine religioso, ovvero sei totalmente a carico di un ordine religioso per il tuo mantenimento Tipo di corso: Laurea, Laurea magistrale a cic…</div>
+          </td>
+          <td><span class="badge badge-category">Riduzione delle tasse: esoneri e incentivi</span></td>
+          <td>
+            <span class="badge badge-ok">Scadenza: 16 novembre 2026, 18:00</span>
+            <br><small style='color: #2b8a3e;'>Mancano 60 giorni</small>
+          </td>
+          <td>
+            <a href="https://bandi.unibo.it/s/amministrazione-generale/esonero-totale-per-chi-appartiene-a-un-ordine-religioso" target="_blank" class="btn btn-primary">🔗 Scheda</a>
+            
+          </td>
+        </tr>
+
+        <tr>
+          <td><strong>5</strong></td>
+          <td>
+            <strong><a href="https://bandi.unibo.it/s/amministrazione-generale/riduzioni-per-chi-ha-altri-familiari-che-frequentano-l-universita" target="_blank" style="color: #bb2e29; text-decoration: none;">Riduzioni per chi ha altri familiari che frequentano l'Università</a></strong>
+            <div class="sintesi">Autocertificazione esonero per componenti dello stesso nucleo familiare La/Il sottoscritta/o ____________________________________________________________________ nata/o a ___________________________________________________ (____) il _____ / _____ / _____ residente in _______________________________ (_____), via ________________________________ n. ______ matricola numero ____________________ consapevole delle sanzioni previste dall’art. 76 del Tes…</div>
+          </td>
+          <td><span class="badge badge-category">Riduzione delle tasse: esoneri e incentivi</span></td>
+          <td>
+            <span class="badge badge-ok">Scadenza: 20 novembre 2026</span>
+            <br><small style='color: #2b8a3e;'>Mancano 64 giorni</small>
+          </td>
+          <td>
+            <a href="https://bandi.unibo.it/s/amministrazione-generale/riduzioni-per-chi-ha-altri-familiari-che-frequentano-l-universita" target="_blank" class="btn btn-primary">🔗 Scheda</a>
+            <a href='https://bandi.unibo.it/s/amministrazione-generale/riduzioni-per-chi-ha-altri-familiari-che-frequentano-l-universita/bando/modulo-autocertificazione-richiesta-esonero-nucleo-familiare-1.pdf/@@download/file/Autocertificazione-richiesta-esonero-nucleo-familiare.pdf' target='_blank' class='btn btn-secondary'>📄 Scarica PDF</a>
+          </td>
+        </tr>
+
+        <tr>
+          <td><strong>6</strong></td>
+          <td>
+            <strong><a href="https://bandi.unibo.it/s/amministrazione-generale/esonero-per-chi-ha-un-genitore-vittima-del-dovere" target="_blank" style="color: #bb2e29; text-decoration: none;">Esonero per chi ha un genitore vittima del dovere del terrorismo e delle stragi di tale matrice</a></strong>
+            <div class="sintesi">del terrorismo e delle stragi di tale matrice con atto n. _______________________ rilasciato da ________________________________________ in data ______________________ .  vittima del terrorismo e de lle stragi di tale matrice ai sensi della L. 206/2004 con atto n. _______________________ rilasciato da ____ ____________________________________ in data ______________________ .</div>
+          </td>
+          <td><span class="badge badge-category">Riduzione delle tasse: esoneri e incentivi</span></td>
+          <td>
+            <span class="badge badge-ok">Scadenza: 20 novembre 2026</span>
+            <br><small style='color: #2b8a3e;'>Mancano 64 giorni</small>
+          </td>
+          <td>
+            <a href="https://bandi.unibo.it/s/amministrazione-generale/esonero-per-chi-ha-un-genitore-vittima-del-dovere" target="_blank" class="btn btn-primary">🔗 Scheda</a>
+            <a href='https://bandi.unibo.it/s/amministrazione-generale/esonero-per-chi-ha-un-genitore-vittima-del-dovere/bando/autocertificazione-vittime-del-dovere-1.pdf/@@download/file/Autocertificazione-vittime-del-dovere.pdf' target='_blank' class='btn btn-secondary'>📄 Scarica PDF</a>
+          </td>
+        </tr>
+
+        <tr>
+          <td><strong>7</strong></td>
+          <td>
+            <strong><a href="https://bandi.unibo.it/s/amministrazione-generale/esonero-per-chi-ha-un-genitore-che-beneficia-della-pensione-di-inabilita-ai-sensi-della-l-118-1971" target="_blank" style="color: #bb2e29; text-decoration: none;">Esonero per chi ha un genitore che beneficia della pensione di inabilità ai sensi della L. 118/1971</a></strong>
+            <div class="sintesi">Esonero contribuzioni studentesche - Autocertificazione beneficiari pensione di inabilità definita ai sensi dell’art. 12 L.118/71 La/Il sottoscritta/o ________________________________________________________________ nata/o a ___________________________________________________________________ (____) il _____ / _____ / _____ Codice Fiscale_________________________________________________ residente a __________ ______________________________________…</div>
+          </td>
+          <td><span class="badge badge-category">Riduzione delle tasse: esoneri e incentivi</span></td>
+          <td>
+            <span class="badge badge-ok">Scadenza: 18 dicembre 2026</span>
+            <br><small style='color: #2b8a3e;'>Mancano 92 giorni</small>
+          </td>
+          <td>
+            <a href="https://bandi.unibo.it/s/amministrazione-generale/esonero-per-chi-ha-un-genitore-che-beneficia-della-pensione-di-inabilita-ai-sensi-della-l-118-1971" target="_blank" class="btn btn-primary">🔗 Scheda</a>
+            <a href='https://bandi.unibo.it/s/amministrazione-generale/esonero-per-chi-ha-un-genitore-che-beneficia-della-pensione-di-inabilita-ai-sensi-della-l-118-1971/bando/2024-autocertificazione-per-figli-beneficiari-pensione-2.pdf/@@download/file/Autocertificazione-per-figli-beneficiari-pensione.pdf' target='_blank' class='btn btn-secondary'>📄 Scarica PDF</a>
+          </td>
+        </tr>
+
+        <tr>
+          <td><strong>8</strong></td>
+          <td>
+            <strong><a href="https://bandi.unibo.it/s/amministrazione-generale/esonero-se-diventi-genitore" target="_blank" style="color: #bb2e29; text-decoration: none;">Esonero se diventi genitore</a></strong>
+            <div class="sintesi">UNIVERSITÀ DI BOLOGNA Autocertificazione esonero studenti/studentesse che diventano genitori La/Il sottoscritta/o ________________________________________________________________ nata/o a _______________________________________________ (____) il _____ / _____ / _____ residente in _______________________________ (_____), via _____________________________ n. ______ matricola numero __________________ consapevole delle sanzioni previste dall’art. 76…</div>
+          </td>
+          <td><span class="badge badge-category">Riduzione delle tasse: esoneri e incentivi</span></td>
+          <td>
+            <span class="badge badge-ok">Scadenza: 31 marzo 2027</span>
+            <br><small style='color: #2b8a3e;'>Mancano 195 giorni</small>
+          </td>
+          <td>
+            <a href="https://bandi.unibo.it/s/amministrazione-generale/esonero-se-diventi-genitore" target="_blank" class="btn btn-primary">🔗 Scheda</a>
+            <a href='https://bandi.unibo.it/s/amministrazione-generale/esonero-se-diventi-genitore/bando/autocertificazione-per-studenti-che-diventano-genitori-1.pdf/@@download/file/Autocertificazione-per-studenti-che-diventano-genitori.pdf' target='_blank' class='btn btn-secondary'>📄 Scarica PDF</a>
+          </td>
+        </tr>
+
+        <tr>
+          <td><strong>9</strong></td>
+          <td>
+            <strong><a href="https://bandi.unibo.it/s/amministrazione-generale/riduzione-tasse-per-laureande-e-laureandi-in-debito-di-sola-prova-finale" target="_blank" style="color: #bb2e29; text-decoration: none;">Riduzione tasse per laureande e laureandi in debito di sola prova finale</a></strong>
+            <div class="sintesi">Tu sei qui: Home / Borse di studio, esoneri, bandi di mobilità e assegni di tutorato alla pari Riduzione tasse per laureande e laureandi in debito di sola prova finale Mi interessa se: Studio al primo anno, Ho una laurea sono fuori corso e mi manca solo la prova finale Tipo di corso: Laurea, Laurea magistrale a ciclo unico, Laurea magistrale Requisiti per partecipare: Merito, Reddito, Iscrizione È necessario essere iscritti o iscritte da un numer…</div>
+          </td>
+          <td><span class="badge badge-category">Prossimi bandi in uscita</span></td>
+          <td>
+            <span class="badge badge-ok">Periodo: gennaio – marzo 2027</span>
+            <br><small style='color: #2b8a3e;'>Mancano 195 giorni</small>
+          </td>
+          <td>
+            <a href="https://bandi.unibo.it/s/amministrazione-generale/riduzione-tasse-per-laureande-e-laureandi-in-debito-di-sola-prova-finale" target="_blank" class="btn btn-primary">🔗 Scheda</a>
+            
+          </td>
+        </tr>
+
+        <tr>
+          <td><strong>10</strong></td>
+          <td>
+            <strong><a href="https://bandi.unibo.it/s/amministrazione-generale/interventi-a-supporto-di-studentesse-e-studenti-in-particolare-difficolta-in-collaborazione-con-er-go" target="_blank" style="color: #bb2e29; text-decoration: none;">Interventi a supporto di studentesse e studenti in particolare difficoltà, in collaborazione con ER.GO</a></strong>
+            <div class="sintesi">Tu sei qui: Home / Borse di studio, esoneri, bandi di mobilità e assegni di tutorato alla pari Interventi a supporto di studentesse e studenti in particolare difficoltà, in collaborazione con ER.GO Mi interessa se: Studio dal secondo anno in poi, Ho una laurea Sono iscritto o iscritta all’Università di Bologna e mi trovo in condizioni di particolare ed eccezionale disagio personale, familiare o economico tali da ostacolare o compromettere la pros…</div>
+          </td>
+          <td><span class="badge badge-category">Prossimi bandi in uscita</span></td>
+          <td>
+            <span class="badge badge-ok">Periodo: febbraio - marzo 2027</span>
+            <br><small style='color: #2b8a3e;'>Mancano 195 giorni</small>
+          </td>
+          <td>
+            <a href="https://bandi.unibo.it/s/amministrazione-generale/interventi-a-supporto-di-studentesse-e-studenti-in-particolare-difficolta-in-collaborazione-con-er-go" target="_blank" class="btn btn-primary">🔗 Scheda</a>
+            
+          </td>
+        </tr>
+
+        <tr>
+          <td><strong>11</strong></td>
+          <td>
+            <strong><a href="https://bandi.unibo.it/s/amministrazione-generale/esonero-per-chi-ha-una-disabilita" target="_blank" style="color: #bb2e29; text-decoration: none;">Esonero per chi ha una disabilità</a></strong>
+            <div class="sintesi">Tu sei qui: Home / Borse di studio, esoneri, bandi di mobilità e assegni di tutorato alla pari Esonero per chi ha una disabilità scadenza: Valido tutto l'anno Mi interessa se: Studio al primo anno, Studio dal secondo anno in poi, Ho una laurea Tipo di corso: Laurea, Laurea magistrale a ciclo unico, Laurea magistrale Requisiti per partecipare: Specifici da bando Le studentesse e gli studenti in possesso di certificazione di invalidità civile pari …</div>
+          </td>
+          <td><span class="badge badge-category">Riduzione delle tasse: esoneri e incentivi</span></td>
+          <td>
+            <span class="badge badge-open">Valido tutto l'anno</span>
+            
+          </td>
+          <td>
+            <a href="https://bandi.unibo.it/s/amministrazione-generale/esonero-per-chi-ha-una-disabilita" target="_blank" class="btn btn-primary">🔗 Scheda</a>
+            
+          </td>
+        </tr>
+
+        <tr>
+          <td><strong>12</strong></td>
+          <td>
+            <strong><a href="https://bandi.unibo.it/s/amministrazione-generale/esonero-totale-per-merito-per-chi-si-iscrive-al-primo-anno-dei-corsi-di-laurea-magistrale" target="_blank" style="color: #bb2e29; text-decoration: none;">Esonero totale per merito per chi si iscrive al primo anno dei corsi di Laurea Magistrale</a></strong>
+            <div class="sintesi">Tu sei qui: Home / Borse di studio, esoneri, bandi di mobilità e assegni di tutorato alla pari Esonero totale per merito per chi si iscrive al primo anno dei corsi di Laurea Magistrale scadenza: Valido tutto l'anno Mi interessa se: Studio al primo anno, Studio dal secondo anno in poi, Ho una laurea Se ti iscrivi al primo anno dei corsi di Laurea Magistrale e hai specifici requisiti di merito. Tipo di corso: Laurea, Laurea magistrale a ciclo unico…</div>
+          </td>
+          <td><span class="badge badge-category">Riduzione delle tasse: esoneri e incentivi</span></td>
+          <td>
+            <span class="badge badge-open">Valido tutto l'anno</span>
+            
+          </td>
+          <td>
+            <a href="https://bandi.unibo.it/s/amministrazione-generale/esonero-totale-per-merito-per-chi-si-iscrive-al-primo-anno-dei-corsi-di-laurea-magistrale" target="_blank" class="btn btn-primary">🔗 Scheda</a>
+            
+          </td>
+        </tr>
+
+        <tr>
+          <td><strong>13</strong></td>
+          <td>
+            <strong><a href="https://bandi.unibo.it/s/amministrazione-generale/contributi-finanziari-per-l-acquisizione-di-ausili-o-supporti-per-lo-studio-di-studentesse-e-studenti-con-disabilita-e-con-dsa" target="_blank" style="color: #bb2e29; text-decoration: none;">Contributi finanziari per l'acquisizione di ausili o supporti per lo studio di studentesse e studenti con disabilità e con DSA</a></strong>
+            <div class="sintesi">Tu sei qui: Home / Borse di studio, esoneri, bandi di mobilità e assegni di tutorato alla pari Contributi finanziari per l'acquisizione di ausili o supporti per lo studio di studentesse e studenti con disabilità e con DSA Mi interessa se: Studio al primo anno, Studio dal secondo anno in poi, Ho una laurea Ho una disabilità o DSA Tipo di corso: Laurea, Laurea magistrale a ciclo unico, Laurea magistrale Requisiti per partecipare: Merito, Specifici …</div>
+          </td>
+          <td><span class="badge badge-category">Prossimi bandi in uscita</span></td>
+          <td>
+            <span class="badge badge-open">Periodo: aprile - giugno 2026</span>
+            
+          </td>
+          <td>
+            <a href="https://bandi.unibo.it/s/amministrazione-generale/contributi-finanziari-per-l-acquisizione-di-ausili-o-supporti-per-lo-studio-di-studentesse-e-studenti-con-disabilita-e-con-dsa" target="_blank" class="btn btn-primary">🔗 Scheda</a>
+            
+          </td>
+        </tr>
+
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function filterTable() {
+  var input = document.getElementById("searchInput");
+  var filter = input.value.toLowerCase();
+  var table = document.getElementById("bandiTable");
+  var tr = table.getElementsByTagName("tr");
+
+  for (var i = 1; i < tr.length; i++) {
+    var text = tr[i].textContent || tr[i].innerText;
+    if (text.toLowerCase().indexOf(filter) > -1) {
+      tr[i].style.display = "";
+    } else {
+      tr[i].style.display = "none";
+    }
+  }
+}
+</script>
+</body>
+</html>
