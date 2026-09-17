@@ -7,7 +7,7 @@ Bot automatico per il monitoraggio e la notifica tempestiva di tutte le opportun
 ## 🎯 Opportunità Monitorate
 
 Il bot interroga il portale ufficiale di Ateneo (`bandi.unibo.it`) combinando:
-1. **Filtro Corsi di Fisica Triennale**: codice corso `6639, 9244, 8007` (*Fisica - L - Bologna*).
+1. **Filtro Corsi di Fisica Triennale**: codice corso `9244` (*Fisica - L - Bologna*).
 2. **Livello di corso**: Laurea Triennale (`laurea`).
 3. **Target 3° Anno e Laureandi**:
    - **Incentivi STEAM** per studenti iscritti a corsi dell'area scientifica (classe L-30).

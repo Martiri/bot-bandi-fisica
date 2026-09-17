@@ -27,8 +27,8 @@ URL_OPPORTUNITA = f"{BASE_URL}/agevolazioni/opportunita"
 URL_TUTORATO = f"{BASE_URL}/didattica/incarichi-tutorato"
 
 # Configurazione target: Studente 3° anno Laurea Triennale in Fisica (Bologna)
-# Codici corso per "Fisica - L - Bologna": 6639, 9244, 8007
-CODICI_CORSO_FISICA = "6639,9244,8007"
+# Codice corso per "Fisica - L - Bologna": 9244
+CODICI_CORSO_FISICA = "9244"
 TIPO_CORSO_LAUREA = "laurea"
 STRUTTURA_DIFA = "difa"  # Dipartimento di Fisica e Astronomia "Augusto Righi"
 
@@ -258,7 +258,7 @@ def cerca_bandi_opportunita(session):
     """Interroga la sezione agevolazioni/opportunita per studenti di Fisica Triennale."""
     bandi = []
     
-    # 1. Query con codice corso Fisica (6639, 9244, 8007) e tipo corso Laurea
+    # 1. Query con codice corso Fisica (9244) e tipo corso Laurea
     # NOTA: le virgole NON devono essere codificate come %2C nella stringa
     params_fisica = {
         "corsi": CODICI_CORSO_FISICA,
