@@ -1,4 +1,4 @@
-# Bandi e Opportunità Attive - 2026-09-17
+# Bandi e Opportunità Attive - 2026-09-18
 
 | N° | Titolo Bando | Categoria | Scadenza | Scheda UniBo | PDF Bando |
 | :---: | :--- | :--- | :--- | :---: | :---: |
