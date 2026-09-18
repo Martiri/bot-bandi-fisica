@@ -125,6 +125,47 @@ def parse_scadenza(scadenza_str, data_riferimento=None):
     return None, None
 
 
+def determina_stato_bando(bando_info):
+    """
+    Determina lo stato operativo delle candidature per il bando:
+    - 'APERTO': È attualmente possibile fare domanda (candidature attive, scadenza fissata o valido tutto l'anno).
+    - 'IN_ARRIVO': Bando annunciato / prossimo in uscita (le candidature non sono ancora state aperte).
+    - 'SCADUTO': I termini per presentare domanda sono terminati (giorni_mancanti < 0).
+    """
+    cat = bando_info.get("categoria", "").lower()
+    scad_raw = bando_info.get("scadenza", "").lower()
+    gm = bando_info.get("giorni_mancanti")
+
+    # 1. Se i giorni mancanti sono negativi, è scaduto
+    if gm is not None and gm < 0:
+        return "SCADUTO"
+
+    # 2. Se è nei 'prossimi bandi in uscita' o la scadenza indica solo un periodo generico futuro
+    if "prossimi bandi in uscita" in cat or "periodo:" in scad_raw:
+        # Se ha nel frattempo una data esplicita di scadenza (es. "Scadenza: 27 ottobre 2026, 12:00")
+        has_exact_date = bool(re.search(
+            r"\d{1,2}\s+(?:gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+\d{4}",
+            scad_raw
+        ))
+        if "scadenza:" in scad_raw and has_exact_date and gm is not None and gm >= 0:
+            return "APERTO"
+        return "IN_ARRIVO"
+
+    # 3. 'Valido tutto l'anno' o agevolazioni permanenti aperte
+    if "valido tutto l'anno" in scad_raw:
+        return "APERTO"
+
+    # 4. Scadenza definita futura
+    if gm is not None and gm >= 0:
+        return "APERTO"
+
+    # 5. Se è presente il PDF del bando o un link di candidatura
+    if bando_info.get("pdf_url"):
+        return "APERTO"
+
+    return "APERTO"
+
+
 def trova_pdf_nel_bando(session, url_bando):
     """Esamina la pagina di dettaglio del bando per trovare il link al PDF."""
     try:
@@ -396,19 +437,39 @@ def salva_memoria(tutti_link_visti, cache_dettagli):
         print(f"❌ Errore salvataggio {FILE_CACHE_DETTAGLI}: {e}")
 
 
-def arricchisci_bandi(session, candidati, memoria_link, cache_dettagli, oggi_str):
-    """Arricchisce i bandi con PDF e sintesi, utilizzando la cache per evitare chiamate ripetute."""
-    bandi_completi = []
-    nuovi_di_oggi = []
+def arricchisci_e_analizza_stati(session, candidati, memoria_link, cache_dettagli, oggi_str, is_first_run=False):
+    """
+    Arricchisce i bandi con PDF e sintesi, e traccia in modo rigoroso le transizioni di stato:
+    1. Nuove aperture di candidatura: bandi annunciati che aprono o nuovi bandi aperti.
+    2. Nuove anticipazioni: nuovi bandi annunciati in uscita.
+    3. Bandi in scadenza: bandi aperti con scadenza entro 30 giorni.
+    4. Nuove chiusure: bandi scaduti o non più presenti nel portale.
+    """
+    bandi_attivi = []
+    nuove_aperture = []
+    nuove_anticipazioni = []
+    in_scadenza = []
+    nuove_chiusure = []
+
+    link_attivi_oggi = set()
 
     for b in candidati:
         link = b["link"]
+        link_attivi_oggi.add(link)
         is_nuovo = link not in memoria_link
 
-        # Se già in cache con sintesi, usa i dati memorizzati
-        if link in cache_dettagli and cache_dettagli[link].get("riassunto"):
-            b_info = dict(cache_dettagli[link])
-            # Aggiorna campi dinamici (es. scadenza aggiornata o categoria)
+        prev_entry = cache_dettagli.get(link)
+        if prev_entry:
+            stato_prec = prev_entry.get("stato_domanda")
+            if not stato_prec:
+                cat_prev = prev_entry.get("categoria", "").lower()
+                scad_prev = prev_entry.get("scadenza", "").lower()
+                stato_prec = "IN_ARRIVO" if ("prossimi" in cat_prev or "periodo:" in scad_prev) else "APERTO"
+        else:
+            stato_prec = None
+
+        if prev_entry and prev_entry.get("riassunto"):
+            b_info = dict(prev_entry)
             b_info.update(b)
             b_info["is_nuovo"] = is_nuovo
             b_info["last_seen"] = oggi_str
@@ -443,41 +504,77 @@ def arricchisci_bandi(session, candidati, memoria_link, cache_dettagli, oggi_str
             b_info["last_seen"] = oggi_str
             b_info["is_nuovo"] = is_nuovo
 
-            # Salva in cache
-            cache_dettagli[link] = dict(b_info)
-
         # Calcola data scadenza e giorni rimanenti
         data_scad, giorni_mancanti = parse_scadenza(b_info.get("scadenza", ""))
         b_info["data_scadenza_parsed"] = data_scad.isoformat() if data_scad else None
         b_info["giorni_mancanti"] = giorni_mancanti
 
-        bandi_completi.append(b_info)
+        # Determinazione stato operativo della candidatura
+        stato_oggi = determina_stato_bando(b_info)
+        b_info["stato_domanda"] = stato_oggi
 
-        if is_nuovo:
-            nuovi_di_oggi.append(b_info)
-            memoria_link.add(link)
+        if stato_oggi == "APERTO" and not b_info.get("data_apertura_domande"):
+            b_info["data_apertura_domande"] = oggi_str
+
+        # Rilevamento nuove aperture di candidature
+        if not is_first_run:
+            if stato_prec == "IN_ARRIVO" and stato_oggi == "APERTO":
+                b_info["motivo_apertura"] = "Bando precedentemente memorizzato che ha aperto le candidature"
+                nuove_aperture.append(b_info)
+            elif stato_prec is None and stato_oggi == "APERTO":
+                b_info["motivo_apertura"] = "Nuovo bando appena pubblicato con candidature aperte"
+                nuove_aperture.append(b_info)
+            elif stato_prec is None and stato_oggi == "IN_ARRIVO":
+                nuove_anticipazioni.append(b_info)
+
+        # Rilevamento bandi in scadenza (candidature aperte con scadenza entro 30 giorni)
+        if stato_oggi == "APERTO" and giorni_mancanti is not None and 0 <= giorni_mancanti <= 30:
+            in_scadenza.append(b_info)
+
+        cache_dettagli[link] = dict(b_info)
+        memoria_link.add(link)
+        bandi_attivi.append(b_info)
+
+    # Rilevamento chiusure o archiviazioni
+    if not is_first_run:
+        for link, old_bando in list(cache_dettagli.items()):
+            if old_bando.get("stato_domanda") != "SCADUTO":
+                gm_old = old_bando.get("giorni_mancanti")
+                ha_scaduto = gm_old is not None and gm_old < 0
+                non_piu_attivo = (link not in link_attivi_oggi)
+
+                if ha_scaduto or non_piu_attivo:
+                    old_bando["stato_domanda"] = "SCADUTO"
+                    old_bando["data_chiusura"] = oggi_str
+                    cache_dettagli[link] = dict(old_bando)
+                    nuove_chiusure.append(old_bando)
 
     # Ordinamento:
-    # 1. Bandi con scadenza imminente (giorni_mancanti >= 0) in ordine crescente
-    # 2. Bandi senza scadenza definita / tutto l'anno
-    # 3. Eventuali già scaduti
+    # 1. Bandi aperti con scadenza definita ordinati per giorni mancanti
+    # 2. Bandi aperti senza scadenza o valido tutto l'anno
+    # 3. Bandi in arrivo (prossimi in uscita)
     def sort_key(item):
+        st = item.get("stato_domanda", "APERTO")
         gm = item.get("giorni_mancanti")
-        if gm is not None and gm >= 0:
-            return (0, gm)
-        elif gm is None:
+        if st == "APERTO":
+            if gm is not None and gm >= 0:
+                return (0, gm)
             return (1, 9999)
-        else:
-            return (2, gm)
+        elif st == "IN_ARRIVO":
+            return (2, 9999)
+        return (3, 9999)
 
-    bandi_completi.sort(key=sort_key)
-    return bandi_completi, nuovi_di_oggi
+    bandi_attivi.sort(key=sort_key)
+    in_scadenza.sort(key=lambda x: x.get("giorni_mancanti", 9999))
+
+    return bandi_attivi, nuove_aperture, in_scadenza, nuove_chiusure, nuove_anticipazioni
 
 
 def export_csv(bandi, filepath):
-    """Esporta tutti i bandi in formato CSV compatibile Excel/Google Sheets."""
+    """Esporta tutti i bandi in formato CSV compatibile Excel/Google Sheets con colonna Stato Candidature."""
     fieldnames = [
         "Titolo",
+        "Stato Candidature",
         "Categoria",
         "Tipologia",
         "Scadenza",
@@ -493,9 +590,20 @@ def export_csv(bandi, filepath):
         writer.writeheader()
         for b in bandi:
             gm = b.get("giorni_mancanti")
-            gm_str = f"{gm} giorni" if gm is not None and gm >= 0 else ("Scaduto" if gm is not None else "Aperto / N/D")
+            st = b.get("stato_domanda", "APERTO")
+            if st == "IN_ARRIVO":
+                st_label = "In arrivo (Candidature non ancora aperte)"
+            elif gm is not None and 0 <= gm <= 30:
+                st_label = f"In Scadenza ({gm} giorni rimanenti)"
+            elif gm is not None and gm < 0:
+                st_label = "Scaduto / Chiuso"
+            else:
+                st_label = "Candidature Aperte"
+
+            gm_str = f"{gm} giorni" if gm is not None and gm >= 0 else ("Scaduto" if gm is not None else "N/D (Aperto tutto l'anno o in arrivo)")
             writer.writerow({
                 "Titolo": b.get("titolo", ""),
+                "Stato Candidature": st_label,
                 "Categoria": b.get("categoria", ""),
                 "Tipologia": b.get("tipologia", ""),
                 "Scadenza": b.get("scadenza", ""),
@@ -509,28 +617,39 @@ def export_csv(bandi, filepath):
 
 
 def export_markdown_table(bandi, filepath, titolo):
-    """Esporta un file Markdown con la tabella formattata."""
+    """Esporta un file Markdown con la tabella formattata e lo stato delle candidature."""
     lines = [f"# {titolo}\n"]
     if not bandi:
         lines.append("*Nessun bando presente.*\n")
     else:
-        lines.append("| N° | Titolo Bando | Categoria | Scadenza | Scheda UniBo | PDF Bando |")
-        lines.append("| :---: | :--- | :--- | :--- | :---: | :---: |")
+        lines.append("| N° | Titolo Bando | Stato Candidature | Categoria | Scadenza | Scheda UniBo | PDF Bando |")
+        lines.append("| :---: | :--- | :---: | :--- | :--- | :---: | :---: |")
         for i, b in enumerate(bandi, 1):
             pdf_cell = f"[Scarica PDF]({b['pdf_url']})" if b.get("pdf_url") else "-"
             scad = b.get("scadenza", "-")
             gm = b.get("giorni_mancanti")
-            if gm is not None and 0 <= gm <= 30:
-                scad = f"🔥 **{scad}** *(mancano {gm} gg)*"
-            lines.append(f"| {i} | **[{b['titolo']}]({b['link']})** | {b['categoria']} | {scad} | [Apri]({b['link']}) | {pdf_cell} |")
+            st = b.get("stato_domanda", "APERTO")
+
+            if st == "IN_ARRIVO":
+                st_label = "🟡 `In arrivo`"
+            elif gm is not None and 0 <= gm <= 7:
+                st_label = f"🚨 `Scade tra {gm} gg!`"
+                scad = f"**{scad}**"
+            elif gm is not None and 0 <= gm <= 30:
+                st_label = f"⏰ `In scadenza (-{gm} gg)`"
+                scad = f"**{scad}**"
+            else:
+                st_label = "🟢 `Candidature Aperte`"
+
+            lines.append(f"| {i} | **[{b['titolo']}]({b['link']})** | {st_label} | {b['categoria']} | {scad} | [Apri]({b['link']}) | {pdf_cell} |")
         lines.append(f"\n*Totale opportunità monitorate: {len(bandi)}*\n")
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
 
-def export_html_table(bandi, filepath, now_dt, nuovi, in_scadenza):
-    """Genera una pagina web HTML moderna, responsive e filtrabile."""
+def export_html_table(bandi, filepath, now_dt, nuove_aperture, in_scadenza, nuove_chiusure):
+    """Genera una pagina web HTML moderna, responsive e filtrabile con lo stato delle candidature."""
     date_str = now_dt.strftime("%d/%m/%Y")
     time_str = now_dt.strftime("%H:%M")
 
@@ -592,12 +711,16 @@ def export_html_table(bandi, filepath, now_dt, nuovi, in_scadenza):
     font-weight: 600;
   }}
   .stat-badge.highlight {{
-    background: #ffe3e3;
-    color: var(--unibo-red);
+    background: #d3f9d8;
+    color: #2b8a3e;
   }}
   .stat-badge.warning {{
     background: #fff3bf;
     color: #d9480f;
+  }}
+  .stat-badge.closed {{
+    background: #f1f3f5;
+    color: #495057;
   }}
   .search-bar {{
     margin-bottom: 20px;
@@ -645,7 +768,8 @@ def export_html_table(bandi, filepath, now_dt, nuovi, in_scadenza):
   .badge-urgent {{ background: #ffe3e3; color: #c92a2a; }}
   .badge-warn {{ background: #fff3bf; color: #d9480f; }}
   .badge-ok {{ background: #e8f5e9; color: #2b8a3e; }}
-  .badge-open {{ background: #f3f0ff; color: #5f3dc4; }}
+  .badge-open {{ background: #e8f5e9; color: #2b8a3e; }}
+  .badge-upcoming {{ background: #fff9db; color: #f59f00; }}
   .btn {{
     display: inline-block;
     padding: 6px 12px;
@@ -682,8 +806,9 @@ def export_html_table(bandi, filepath, now_dt, nuovi, in_scadenza):
     <p class="subtitle">Monitoraggio autonomo per il Corso di Laurea in Fisica (Codice <code>9244</code>) | Ultimo controllo: <strong>{date_str} alle {time_str}</strong></p>
     <div class="stats">
       <span class="stat-badge">📋 Totale bandi attivi: {len(bandi)}</span>
-      <span class="stat-badge {'highlight' if nuovi else ''}">✨ Nuovi oggi: {len(nuovi)}</span>
-      <span class="stat-badge {'warning' if in_scadenza else ''}">⏰ In scadenza imminente: {len(in_scadenza)}</span>
+      <span class="stat-badge {'highlight' if nuove_aperture else ''}">🚀 Candidature aperte oggi: {len(nuove_aperture)}</span>
+      <span class="stat-badge {'warning' if in_scadenza else ''}">⏰ In scadenza (<=30g): {len(in_scadenza)}</span>
+      <span class="stat-badge closed">🏁 Chiusi di recente: {len(nuove_chiusure)}</span>
     </div>
   </header>
 
@@ -697,6 +822,7 @@ def export_html_table(bandi, filepath, now_dt, nuovi, in_scadenza):
         <tr>
           <th style="width: 45px;">#</th>
           <th>Bando & Finalità</th>
+          <th>Stato Domanda</th>
           <th>Categoria</th>
           <th>Scadenza</th>
           <th style="min-width: 170px;">Azioni</th>
@@ -707,18 +833,27 @@ def export_html_table(bandi, filepath, now_dt, nuovi, in_scadenza):
     for i, b in enumerate(bandi, 1):
         gm = b.get("giorni_mancanti")
         scad_text = b.get("scadenza", "N/D")
+        st = b.get("stato_domanda", "APERTO")
 
-        if gm is not None and gm >= 0:
-            if gm <= 15:
+        if st == "IN_ARRIVO":
+            badge_stato = "<span class='badge badge-upcoming'>🟡 In Arrivo</span>"
+            badge_class = "badge-upcoming"
+            sub_scad = "<br><small style='color: #f59f00;'>Candidature non ancora aperte</small>"
+        elif gm is not None and gm >= 0:
+            if gm <= 7:
+                badge_stato = f"<span class='badge badge-urgent'>🚨 Scade a breve (-{gm}g)</span>"
                 badge_class = "badge-urgent"
                 sub_scad = f"<br><small style='color: #c92a2a; font-weight: 700;'>🔥 Mancano {gm} giorni!</small>"
             elif gm <= 30:
+                badge_stato = f"<span class='badge badge-warn'>⏰ In scadenza (-{gm}g)</span>"
                 badge_class = "badge-warn"
                 sub_scad = f"<br><small style='color: #d9480f; font-weight: 600;'>⏰ Mancano {gm} giorni</small>"
             else:
+                badge_stato = "<span class='badge badge-ok'>🟢 Domande Aperte</span>"
                 badge_class = "badge-ok"
                 sub_scad = f"<br><small style='color: #2b8a3e;'>Mancano {gm} giorni</small>"
         else:
+            badge_stato = "<span class='badge badge-ok'>🟢 Candidature Aperte</span>"
             badge_class = "badge-open"
             sub_scad = ""
 
@@ -732,6 +867,7 @@ def export_html_table(bandi, filepath, now_dt, nuovi, in_scadenza):
             <strong><a href="{b['link']}" target="_blank" style="color: #bb2e29; text-decoration: none;">{b['titolo']}</a></strong>{nuovo_badge}
             <div class="sintesi">{b.get('riassunto', '')}</div>
           </td>
+          <td>{badge_stato}</td>
           <td><span class="badge badge-category">{b['categoria']}</span></td>
           <td>
             <span class="badge {badge_class}">{scad_text}</span>
@@ -774,66 +910,127 @@ function filterTable() {
         f.write(html)
 
 
-def costruisci_testo_issue(bandi_attivi, nuovi, in_scadenza, is_first_run, now_dt):
-    """Costruisce il titolo e il corpo Markdown dell'Issue GitHub quotidiana."""
+def costruisci_testo_issue(bandi_attivi, nuove_aperture, in_scadenza, nuove_chiusure, nuove_anticipazioni, is_first_run, now_dt):
+    """Costruisce il titolo e il corpo Markdown dell'Issue GitHub con evidenziazione di aperture, chiusure e scadenze."""
     date_str = now_dt.strftime("%d/%m/%Y")
     day_name = GIORNI_SETTIMANA[now_dt.weekday()]
 
-    if nuovi:
-        titolo = f"🚨 {len(nuovi)} nuov{'o' if len(nuovi)==1 else 'i'} band{'o' if len(nuovi)==1 else 'i'} — Fisica Triennale ({date_str})"
+    scadenze_urgenti = [b for b in in_scadenza if b.get("giorni_mancanti") is not None and b.get("giorni_mancanti") <= 7]
+
+    # Titolo dinamico ad alto impatto
+    if nuove_aperture and scadenze_urgenti:
+        titolo = f"🚨 CANDIDATURE APERTE ({len(nuove_aperture)}) & SCADENZE IMMINENTI — Fisica Triennale ({date_str})"
+    elif nuove_aperture:
+        titoli_short = ", ".join([f"'{b['titolo'][:32]}...'" for b in nuove_aperture[:2]])
+        titolo = f"🚀 Candidature Aperte: {titoli_short} — Fisica Triennale ({date_str})"
+    elif scadenze_urgenti:
+        titolo = f"🚨 ATTENZIONE: Bando in Scadenza tra {scadenze_urgenti[0]['giorni_mancanti']} giorni! — Fisica Triennale ({date_str})"
     elif in_scadenza:
         titolo = f"⏰ Bandi in Scadenza e Attivi — Fisica Triennale ({day_name} {date_str})"
+    elif nuove_chiusure:
+        titolo = f"🏁 Aggiornamento Bandi Chiusi e Attivi — Fisica Triennale ({day_name} {date_str})"
+    elif nuove_anticipazioni:
+        titolo = f"📢 Nuovi Bandi in Arrivo — Fisica Triennale ({day_name} {date_str})"
     else:
         titolo = f"🔭 Bandi e Opportunità Attive — Fisica Triennale ({day_name} {date_str})"
 
     lines = [f"# 🎓 Bandi e Opportunità UniBo — Fisica Triennale ({day_name} {date_str})\n"]
 
-    # 1. NUOVI BANDI
-    if nuovi:
+    # 1. NUOVE APERTURE DI CANDIDATURA (ORA È POSSIBILE FARE DOMANDA!)
+    if nuove_aperture:
         lines.append("> [!IMPORTANT]")
-        lines.append(f"> ### 🚨 Rilevat{'o' if len(nuovi)==1 else 'i'} {len(nuovi)} nuov{'o' if len(nuovi)==1 else 'i'} band{'o' if len(nuovi)==1 else 'i'} per Fisica Triennale!\n")
-        for i, b in enumerate(nuovi, 1):
+        lines.append(f"> ### 🚀 CANDIDATURE APERTE! ORA È POSSIBILE FARE DOMANDA ({len(nuove_aperture)})\n")
+        lines.append("> È stata aperta ufficialmente la possibilità di presentare domanda per i seguenti bandi:\n")
+        for i, b in enumerate(nuove_aperture, 1):
             pdf_txt = f" | 📄 [Scarica il PDF del Bando]({b['pdf_url']})" if b.get("pdf_url") else ""
             lines.append(f"### {i}. [{b['titolo']}]({b['link']})")
+            lines.append(f"- 📢 **Stato:** 🟢 **Candidature Aperte** ({b.get('motivo_apertura', 'Aperto oggi')})")
+            lines.append(f"- ⏰ **Termine Scadenza:** **{b['scadenza']}**")
             lines.append(f"- 🏷️ **Categoria:** {b['categoria']}")
-            lines.append(f"- ⏰ **Scadenza:** {b['scadenza']}")
             lines.append(f"- 🎯 **Destinatari:** {b.get('destinatari', 'Non specificati')}")
             lines.append(f"- 📋 **Requisiti:** {b.get('requisiti', 'Specifici da bando')}")
-            lines.append(f"\n**ℹ️ Finalità ({b.get('nota_fonte', 'Estratto')}):**\n> {b['riassunto']}\n")
-            lines.append(f"🔗 **[Apri Scheda Bando]({b['link']})**{pdf_txt}\n")
+            lines.append(f"\n**ℹ️ Finalità e Dettagli ({b.get('nota_fonte', 'Estratto')}):**\n> {b['riassunto']}\n")
+            lines.append(f"🔗 **[Accedi alla Scheda e Presenta Domanda]({b['link']})**{pdf_txt}\n")
         lines.append("")
-    elif is_first_run:
-        lines.append("> [!NOTE]")
-        lines.append(f"> **Inizializzazione completata**: Sono state caricate in archivio **{len(bandi_attivi)} opportunità** per Fisica Triennale (corso `9244`). Da domani ogni nuova pubblicazione verrà notificata con massima priorità.\n")
-    else:
-        lines.append("> [!TIP]")
-        lines.append(f"> ✅ **Nessun nuovo bando oggi**: Tutte le **{len(bandi_attivi)} opportunità attive** per Fisica Triennale sono confermate e monitorate.\n")
 
-    # 2. BANDI IN SCADENZA IMMINENTE
+    # 2. BANDI IN SCADENZA IMMINENTE (AVVISO URGENZA)
     if in_scadenza:
-        lines.append("## ⏰ Bandi in Scadenza nei Prossimi 30 Giorni\n")
-        lines.append("| Bando | Scadenza | Mancano | Scheda Web | PDF |")
-        lines.append("| :--- | :--- | :---: | :---: | :---: |")
+        has_critical = any(b.get("giorni_mancanti", 99) <= 7 for b in in_scadenza)
+        alert_tag = "[!CAUTION]" if has_critical else "[!WARNING]"
+        lines.append(f"> {alert_tag}")
+        lines.append(f"> ### ⏰ ATTENZIONE ALLE SCADENZE: Bandi in Chiusura nei Prossimi 30 Giorni ({len(in_scadenza)})\n")
+        lines.append("> Verifica i termini per non perdere l'opportunità di presentare domanda in tempo.\n")
+        lines.append("| Urgenza | Bando | Scadenza | Tempo Rimanente | Scheda | PDF |")
+        lines.append("| :---: | :--- | :--- | :---: | :---: | :---: |")
         for b in in_scadenza:
-            pdf_c = f"[PDF]({b['pdf_url']})" if b.get("pdf_url") else "-"
             gm = b.get("giorni_mancanti", 0)
-            lines.append(f"| **[{b['titolo']}]({b['link']})** | {b['scadenza']} | **{gm} giorni** | [Apri]({b['link']}) | {pdf_c} |")
-        lines.append("")
+            if gm <= 3:
+                urg_badge = "🚨 **CRITICO**"
+                gm_txt = f"🔥 **{gm} giorni!**"
+            elif gm <= 7:
+                urg_badge = "🔴 **URGENTE**"
+                gm_txt = f"**{gm} giorni**"
+            elif gm <= 15:
+                urg_badge = "🟠 **IMMINENTE**"
+                gm_txt = f"{gm} giorni"
+            else:
+                urg_badge = "🟡 **A BREVE**"
+                gm_txt = f"{gm} giorni"
+            pdf_c = f"[PDF]({b['pdf_url']})" if b.get("pdf_url") else "-"
+            lines.append(f"| {urg_badge} | **[{b['titolo']}]({b['link']})** | {b['scadenza']} | {gm_txt} | [Apri]({b['link']}) | {pdf_c} |")
+        lines.append("\n")
 
-    # 3. TABELLA COMPLETA DI TUTTI I BANDI ATTIVI
+    # 3. BANDI CONCLUSI / CHIUSI DI RECENTE
+    if nuove_chiusure:
+        lines.append("> [!NOTE]")
+        lines.append(f"> ### 🏁 Bandi Conclusi / Chiusi ({len(nuove_chiusure)})\n")
+        lines.append("> I termini per presentare domanda sono terminati per i seguenti bandi (archiviati dal portale):\n")
+        for b in nuove_chiusure:
+            lines.append(f"- 🔒 **[{b['titolo']}]({b['link']})** — Termini scaduti (*{b.get('scadenza', 'Chiuso')}*)")
+        lines.append("\n")
+
+    # 4. NUOVE ANTICIPAZIONI IN ARRIVO
+    if nuove_anticipazioni:
+        lines.append("> ### 📢 Nuove Anticipazioni (Prossimi Bandi in Uscita)\n")
+        lines.append("> Bandi annunciati per i quali non è ancora aperta la procedura di candidatura:\n")
+        for b in nuove_anticipazioni:
+            lines.append(f"- 🟡 **[{b['titolo']}]({b['link']})** — *{b.get('scadenza', 'Periodo futuro')}*")
+        lines.append("\n")
+
+    # 5. STATO GENERALE
+    if not nuove_aperture and not in_scadenza and not nuove_chiusure:
+        if is_first_run:
+            lines.append("> [!NOTE]")
+            lines.append(f"> **Inizializzazione completata**: Registrate **{len(bandi_attivi)} opportunità** per Fisica Triennale (corso `9244`). Da domani ogni nuova apertura o scadenza imminente verrà notificata.\n")
+        else:
+            lines.append("> [!TIP]")
+            lines.append(f"> ✅ **Nessuna variazione critica oggi**: Tutte le **{len(bandi_attivi)} opportunità attive** sono monitorate regolarmente.\n")
+
+    # 6. TABELLA COMPLETA DI TUTTI I BANDI ATTIVI
     lines.append(f"## 📋 Elenco Completo Opportunità Attive ({len(bandi_attivi)})\n")
-    lines.append("| N° | Titolo Bando | Categoria | Scadenza | Scheda | PDF |")
-    lines.append("| :---: | :--- | :--- | :--- | :---: | :---: |")
+    lines.append("| N° | Titolo Bando | Stato Candidature | Scadenza | Scheda | PDF |")
+    lines.append("| :---: | :--- | :---: | :--- | :---: | :---: |")
     for i, b in enumerate(bandi_attivi, 1):
         pdf_c = f"[PDF]({b['pdf_url']})" if b.get("pdf_url") else "-"
         scad = b.get("scadenza", "-")
         gm = b.get("giorni_mancanti")
-        if gm is not None and 0 <= gm <= 30:
-            scad = f"⏰ **{scad}** *(-{gm}g)*"
-        lines.append(f"| {i} | [{b['titolo']}]({b['link']}) | `{b['categoria']}` | {scad} | [Apri]({b['link']}) | {pdf_c} |")
+        st = b.get("stato_domanda", "APERTO")
+
+        if st == "IN_ARRIVO":
+            stato_txt = "🟡 `In arrivo`"
+        elif gm is not None and 0 <= gm <= 7:
+            stato_txt = f"🚨 `Scade a breve (-{gm}g)`"
+            scad = f"**{scad}**"
+        elif gm is not None and 0 <= gm <= 30:
+            stato_txt = f"⏰ `In scadenza (-{gm}g)`"
+            scad = f"**{scad}**"
+        else:
+            stato_txt = "🟢 `Candidature Aperte`"
+
+        lines.append(f"| {i} | [{b['titolo']}]({b['link']}) | {stato_txt} | {scad} | [Apri]({b['link']}) | {pdf_c} |")
     lines.append("")
 
-    # 4. DOWNLOAD E TABELLE
+    # 7. DOWNLOAD E TABELLE
     repo_name = os.environ.get("GITHUB_REPOSITORY", "Martiri/bot-bandi-fisica")
     raw_base = f"https://raw.githubusercontent.com/{repo_name}/main"
     blob_base = f"https://github.com/{repo_name}/blob/main"
@@ -913,7 +1110,7 @@ def invia_issue_github(titolo, corpo, labels=None):
         return False
 
 
-def invia_telegram(nuovi, bandi_attivi, file_allegati=None):
+def invia_telegram(nuove_aperture, in_scadenza, nuove_chiusure, bandi_attivi, file_allegati=None):
     """Invia notifiche via Telegram se configurati i relativi secret."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
@@ -923,18 +1120,20 @@ def invia_telegram(nuovi, bandi_attivi, file_allegati=None):
     oggi_str = ora_italiana_ora().strftime("%d/%m/%Y")
     print("  📱 Invio aggiornamenti Telegram...")
 
-    # Se ci sono nuovi bandi, manda un messaggio per ciascun nuovo bando
-    if nuovi:
-        url_msg = f"https://api.telegram.org/bot{token}/sendMessage"
-        for b in nuovi:
+    url_msg = f"https://api.telegram.org/bot{token}/sendMessage"
+
+    # 1. Notifica nuove aperture di candidatura
+    if nuove_aperture:
+        for b in nuove_aperture:
             msg = (
-                f"🎓 <b>Nuovo Bando UniBo — Fisica Triennale</b> ({oggi_str})\n\n"
+                f"🚀 <b>CANDIDATURE APERTE — Fisica UniBo</b> ({oggi_str})\n\n"
                 f"📌 <b>{b['titolo']}</b>\n"
+                f"📢 <b>Stato:</b> {b.get('motivo_apertura', 'Candidature aperte')}\n"
                 f"⏰ <b>Scadenza:</b> {b['scadenza']}\n"
                 f"🏷️ <b>Categoria:</b> {b['categoria']}\n"
                 f"🎯 <b>Destinatari:</b> {b.get('destinatari', 'N/D')}\n\n"
                 f"ℹ️ <i>{b['riassunto'][:280]}...</i>\n\n"
-                f"🔗 <a href=\"{b['link']}\">Apri scheda bando</a>"
+                f"🔗 <a href=\"{b['link']}\">Apri scheda e fai domanda</a>"
             )
             if b.get("pdf_url"):
                 msg += f" | <a href=\"{b['pdf_url']}\">Scarica PDF</a>"
@@ -947,7 +1146,45 @@ def invia_telegram(nuovi, bandi_attivi, file_allegati=None):
                     "disable_web_page_preview": False
                 }, timeout=10)
             except Exception as e:
-                print(f"     ⚠️  Errore invio messaggio Telegram: {e}")
+                print(f"     ⚠️  Errore invio apertura Telegram: {e}")
+
+    # 2. Notifica scadenze imminenti (urgenza <= 7 giorni)
+    scadenze_urgenti = [b for b in in_scadenza if b.get("giorni_mancanti") is not None and b.get("giorni_mancanti") <= 7]
+    if scadenze_urgenti:
+        for b in scadenze_urgenti:
+            gm = b.get("giorni_mancanti", 0)
+            msg = (
+                f"🚨 <b>ATTENZIONE: BANDO IN SCADENZA!</b>\n\n"
+                f"📌 <b>{b['titolo']}</b>\n"
+                f"🔥 <b>Mancano soli {gm} giorni!</b> (Scadenza: {b['scadenza']})\n"
+                f"🔗 <a href=\"{b['link']}\">Presenta domanda subito</a>"
+            )
+            try:
+                requests.post(url_msg, json={
+                    "chat_id": chat_id,
+                    "text": msg,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": False
+                }, timeout=10)
+            except Exception as e:
+                print(f"     ⚠️  Errore invio scadenza Telegram: {e}")
+
+    # 3. Notifica chiusure
+    if nuove_chiusure:
+        titoli_chiusi = "\n".join([f"- {b['titolo'][:60]}" for b in nuove_chiusure[:5]])
+        msg = (
+            f"🏁 <b>Bandi Conclusi / Chiusi ({len(nuove_chiusure)})</b>\n\n"
+            f"{titoli_chiusi}"
+        )
+        try:
+            requests.post(url_msg, json={
+                "chat_id": chat_id,
+                "text": msg,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True
+            }, timeout=10)
+        except Exception as e:
+            print(f"     ⚠️  Errore invio chiusure Telegram: {e}")
 
     # Invia tabella CSV come documento allegato
     if file_allegati:
@@ -956,7 +1193,7 @@ def invia_telegram(nuovi, bandi_attivi, file_allegati=None):
             if os.path.exists(f_path):
                 try:
                     with open(f_path, "rb") as doc_file:
-                        caption = f"📊 Tabella bandi e opportunità aggiornata al {oggi_str} ({len(bandi_attivi)} bandi attivi)."
+                        caption = f"📊 Tabella opportunità Fisica aggiornata al {oggi_str} ({len(bandi_attivi)} bandi attivi)."
                         requests.post(url_doc, data={"chat_id": chat_id, "caption": caption}, files={"document": doc_file}, timeout=20)
                 except Exception as e:
                     print(f"     ⚠️  Errore invio documento Telegram ({f_path}): {e}")
@@ -1027,25 +1264,23 @@ def main():
     candidati_unici = list(dedup.values())
     print(f"   → Totale bandi unici attivi oggi: {len(candidati_unici)}")
 
-    # 2. Arricchimento dettagli e rilevamento novità
-    print("\n🧐 3. Arricchimento dettagli (PDF, sintesi, calcolo scadenze)...")
-    bandi_attivi, nuovi = arricchisci_bandi(session, candidati_unici, memoria_link, cache_dettagli, oggi_str)
+    # 2. Arricchimento dettagli e analisi degli stati (aperture, scadenze, chiusure)
+    print("\n🧐 3. Arricchimento dettagli e analisi transizioni di stato...")
+    bandi_attivi, nuove_aperture, in_scadenza, nuove_chiusure, nuove_anticipazioni = arricchisci_e_analizza_stati(
+        session, candidati_unici, memoria_link, cache_dettagli, oggi_str, is_first_run=is_first_run
+    )
 
-    # Identifica bandi in scadenza nei prossimi 30 giorni
-    in_scadenza = [
-        b for b in bandi_attivi
-        if b.get("giorni_mancanti") is not None and 0 <= b.get("giorni_mancanti") <= 30
-    ]
-
-    print(f"   ✨ Nuovi bandi rilevati oggi: {len(nuovi)}")
+    print(f"   🚀 Nuove aperture di candidatura: {len(nuove_aperture)}")
     print(f"   ⏰ Bandi con scadenza nei prossimi 30 giorni: {len(in_scadenza)}")
+    print(f"   🏁 Bandi chiusi/scaduti di recente: {len(nuove_chiusure)}")
+    print(f"   📢 Nuove anticipazioni in arrivo: {len(nuove_anticipazioni)}")
 
     # 3. Generazione tabelle e file esportati
     print("\n📊 4. Generazione tabelle scaricabili...")
     export_csv(bandi_attivi, OUTPUT_CSV)
     export_markdown_table(bandi_attivi, OUTPUT_MD_ATTIVI, f"Bandi e Opportunità Attive - {oggi_str}")
     export_markdown_table(in_scadenza, OUTPUT_MD_SCADENZE, f"Bandi in Scadenza nei Prossimi 30 Giorni - {oggi_str}")
-    export_html_table(bandi_attivi, OUTPUT_HTML, now_rome, nuovi, in_scadenza)
+    export_html_table(bandi_attivi, OUTPUT_HTML, now_rome, nuove_aperture, in_scadenza, nuove_chiusure)
 
     print(f"  - CSV scaricabile: {OUTPUT_CSV}")
     print(f"  - HTML interattivo: {OUTPUT_HTML}")
@@ -1054,13 +1289,16 @@ def main():
 
     # 4. Gestione Issue GitHub e Step Summary
     print("\n📬 5. Creazione o aggiornamento notifica via GitHub Issue...")
-    titolo_issue, corpo_issue = costruisci_testo_issue(bandi_attivi, nuovi, in_scadenza, is_first_run, now_rome)
+    titolo_issue, corpo_issue = costruisci_testo_issue(
+        bandi_attivi, nuove_aperture, in_scadenza, nuove_chiusure, nuove_anticipazioni, is_first_run, now_rome
+    )
     invia_issue_github(titolo_issue, corpo_issue, labels=["bando"])
     aggiorna_step_summary(corpo_issue)
 
     # 5. Notifiche push esterne (opzionali)
-    invia_telegram(nuovi, bandi_attivi, file_allegati=[OUTPUT_CSV])
-    invia_ntfy(titolo_issue, f"UniBo Fisica: {len(bandi_attivi)} bandi attivi, {len(nuovi)} nuovi oggi.")
+    invia_telegram(nuove_aperture, in_scadenza, nuove_chiusure, bandi_attivi, file_allegati=[OUTPUT_CSV])
+    ntfy_msg = f"UniBo Fisica: {len(bandi_attivi)} attivi, {len(nuove_aperture)} aperture, {len(in_scadenza)} in scadenza."
+    invia_ntfy(titolo_issue, ntfy_msg)
 
     # 6. Salvataggio memoria aggiornata
     salva_memoria(memoria_link, cache_dettagli)
