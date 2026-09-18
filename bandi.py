@@ -834,18 +834,23 @@ def costruisci_testo_issue(bandi_attivi, nuovi, in_scadenza, is_first_run, now_d
     lines.append("")
 
     # 4. DOWNLOAD E TABELLE
+    repo_name = os.environ.get("GITHUB_REPOSITORY", "Martiri/bot-bandi-fisica")
+    raw_base = f"https://raw.githubusercontent.com/{repo_name}/main"
+    blob_base = f"https://github.com/{repo_name}/blob/main"
+    owner = os.environ.get("GITHUB_REPOSITORY_OWNER") or (repo_name.split("/")[0] if "/" in repo_name else "Martiri")
+
     lines.append("---")
     lines.append("### 📥 Tabelle Scaricabili")
-    lines.append("- 📊 Tabella CSV completa per Excel / Google Sheets: [`bandi_attivi.csv`](./bandi_attivi.csv)")
-    lines.append("- 🌐 Pagina web interattiva con ricerca rapida: [`bandi_attivi.html`](./bandi_attivi.html)")
-    lines.append("- 📄 Elenco in formato Markdown: [`bandi_attivi.md`](./bandi_attivi.md)")
-    lines.append("\n*Notifica generata automaticamente dal Bot Bandi UniBo (Fisica).*")
+    lines.append(f"- 📊 **Tabella CSV (Excel / Google Sheets)**: [📥 Scarica `bandi_attivi.csv`]({raw_base}/bandi_attivi.csv) • [Visualizza su GitHub]({blob_base}/bandi_attivi.csv)")
+    lines.append(f"- 🌐 **Pagina Web Interattiva**: [Visualizza `bandi_attivi.html`]({blob_base}/bandi_attivi.html)")
+    lines.append(f"- 📄 **Elenco Completo Markdown**: [Visualizza `bandi_attivi.md`]({blob_base}/bandi_attivi.md)")
+    lines.append(f"\n*Notifica generata automaticamente per @{owner} dal Bot Bandi UniBo (Fisica).*")
 
     return titolo, "\n".join(lines)
 
 
 def invia_issue_github(titolo, corpo, labels=None):
-    """Crea o aggiorna la Issue nel repository GitHub usando GITHUB_TOKEN e GITHUB_REPOSITORY."""
+    """Crea una nuova Issue nel repository GitHub assegnata all'utente per garantire l'invio immediato dell'email di notifica."""
     token = os.environ.get("GITHUB_TOKEN")
     repo = os.environ.get("GITHUB_REPOSITORY")
     if not token or not repo:
@@ -861,55 +866,44 @@ def invia_issue_github(titolo, corpo, labels=None):
         "User-Agent": "BotBandiFisica",
     }
 
-    oggi_str = ora_italiana_ora().strftime("%d/%m/%Y")
-    existing_issue_number = None
+    owner = os.environ.get("GITHUB_REPOSITORY_OWNER") or (repo.split("/")[0] if "/" in repo else "Martiri")
 
-    # 1. Controlla le issue aperte con label bando: chiudi quelle dei giorni precedenti e trova se ne esiste già una per oggi
+    # 1. Chiudi tutte le issue aperte con questa label per mantenere pulito il repository
     try:
-        list_url = f"https://api.github.com/repos/{repo}/issues?labels=bando&state=open&per_page=10"
+        label_query = labels[0] if labels else "bando"
+        list_url = f"https://api.github.com/repos/{repo}/issues?labels={label_query}&state=open&per_page=30"
         r = requests.get(list_url, headers=headers, timeout=12)
         if r.status_code == 200:
             issues = r.json()
             for iss in issues:
-                if oggi_str in iss.get("title", ""):
-                    existing_issue_number = iss["number"]
-                else:
-                    # Chiudi la issue del giorno precedente per mantenere pulito il repository
-                    close_url = f"https://api.github.com/repos/{repo}/issues/{iss['number']}"
-                    try:
-                        requests.patch(close_url, headers=headers, json={"state": "closed"}, timeout=10)
-                        print(f"ℹ️  Chiusa precedente issue archiviata #{iss['number']}")
-                    except Exception:
-                        pass
+                close_url = f"https://api.github.com/repos/{repo}/issues/{iss['number']}"
+                try:
+                    requests.patch(close_url, headers=headers, json={"state": "closed"}, timeout=10)
+                    print(f"ℹ️  Chiusa precedente issue archiviata #{iss['number']}")
+                except Exception:
+                    pass
     except Exception as e:
-        print(f"⚠️  Impossibile verificare issue esistenti: {e}")
+        print(f"⚠️  Impossibile verificare/chiudere issue precedenti: {e}")
 
-    # 2. Se esiste già una issue per oggi, aggiornala
-    if existing_issue_number:
-        patch_url = f"https://api.github.com/repos/{repo}/issues/{existing_issue_number}"
-        payload = {"title": titolo, "body": corpo}
-        try:
-            r = requests.patch(patch_url, headers=headers, json=payload, timeout=12)
-            if r.status_code == 200:
-                print(f"✅ Issue #{existing_issue_number} aggiornata con successo per oggi ({oggi_str}).")
-                return True
-        except Exception as e:
-            print(f"⚠️  Errore aggiornamento Issue #{existing_issue_number}: {e}")
-
-    # 3. Altrimenti crea una nuova Issue
+    # 2. Crea SEMPRE una NUOVA Issue assegnata all'owner
+    # In GitHub, l'apertura di una nuova issue con assegnatario genera l'invio dell'email di notifica con il corpo completo della issue
     create_url = f"https://api.github.com/repos/{repo}/issues"
     payload = {
         "title": titolo,
         "body": corpo,
         "labels": labels,
+        "assignees": [owner] if owner else []
     }
 
     try:
         r = requests.post(create_url, headers=headers, json=payload, timeout=12)
         if r.status_code == 422:
-            # Se fallisce per etichetta non esistente, ritenta senza label
-            payload.pop("labels", None)
-            r = requests.post(create_url, headers=headers, json=payload, timeout=12)
+            # Se fallisce per assignees o label non esistente, ritenta senza assignees e senza labels
+            payload_fallback = {
+                "title": titolo,
+                "body": corpo
+            }
+            r = requests.post(create_url, headers=headers, json=payload_fallback, timeout=12)
         r.raise_for_status()
         res_data = r.json()
         print(f"✅ Issue GitHub creata con successo: #{res_data.get('number')} - {titolo}")

@@ -2,8 +2,10 @@ name: Controllo Bandi Fisica UniBo
 
 on:
   schedule:
-    # Ogni mattina alle 06:00 UTC = 08:00 ora italiana (ora legale estiva) / 07:00 ora solare
-    - cron: '0 6 * * *'
+    # Mattina alle 05:20 UTC (07:20 ora italiana estiva CEST / 06:20 ora solare CET).
+    # Il minuto non congestionato (:20 anziché :00) evita le code di GitHub Actions
+    # assicurando la consegna della notifica e dell'email sempre prima delle 08:00.
+    - cron: '20 5 * * *'
   workflow_dispatch: # Permette di avviarlo manualmente dalla scheda Actions con 1 click
 
 permissions:
