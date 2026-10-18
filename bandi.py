@@ -678,6 +678,10 @@ def arricchisci_e_analizza_stati(session, candidati, memoria_link, cache_dettagl
             b_info["last_seen"] = oggi_str
             b_info["is_nuovo"] = is_nuovo
 
+        # Verifica finale accessibilità con tutti i dettagli (sintesi/PDF inclusi)
+        if not e_accessibile_terzo_anno_fisica(b_info):
+            continue
+
         # Calcola data scadenza e giorni rimanenti
         data_scad, giorni_mancanti = parse_scadenza(b_info.get("scadenza", ""))
         b_info["data_scadenza_parsed"] = data_scad.isoformat() if data_scad else None
