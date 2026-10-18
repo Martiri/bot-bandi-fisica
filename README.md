@@ -17,6 +17,7 @@ Repository unificato per il monitoraggio automatico di tutte le opportunità, bo
   - 📢 **Nuovi bandi in arrivo** annunciati dall'Ateneo.
   - 🏁 **Bandi chiusi o conclusi**.
   - *(Se non ci sono novità, nessun messaggio viene inviato per non disturbare).*
+- 💶 **Regola ISEE > 40.000 €**: Filtra ed esclude automaticamente tutte le agevolazioni che richiedono un ISEE basso (es. no-tax area under 27k, sussidi ER.GO, esenzioni con tetti stringenti). Mantiene solo i bandi a cui è possibile partecipare e fare domanda anche con **ISEE superiore a 40.000 €** (merito STEAM, 150 ore, tutorato, esonero magistrale per voto, riduzioni per familiari universitari, ecc.).
 - 📥 **Tabelle Complete e Sempre Aggiornate nel Repository**:
   - `bandi_attivi.csv`: Tabella completa esportata in foglio di calcolo (Excel, Numbers, Google Sheets).
   - `bandi_attivi.html`: Pagina web responsive con ricerca in tempo reale.

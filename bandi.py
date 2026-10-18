@@ -320,8 +320,57 @@ def estrai_dettagli_card(card, categoria_sezione="Opportunità"):
     }
 
 
+def e_compatibile_isee_superiore_40k(info_bando):
+    """
+    Verifica se il bando è accessibile a uno studente con ISEE > 40.000€.
+    Esclude tutti i bandi con requisiti di reddito restrittivi (no-tax area,
+    soglie ISEE <= 40k, ER.GO, ecc.), mantenendo invece:
+    - Bandi per merito (incentivi STEAM, esonero laurea magistrale, 150 ore, tutorato)
+    - Agevolazioni aperte anche a ISEE > 40.000€ (es. riduzione per familiari universitari)
+    - Esoneri specifici indipendenti dall'ISEE (disabilità, pensioni inabilità, vittime del dovere)
+    """
+    titolo_low = info_bando.get("titolo", "").lower()
+    link_low = info_bando.get("link", "").lower()
+    req_low = info_bando.get("requisiti", "").lower()
+    dest_low = info_bando.get("destinatari", "").lower()
+    sintesi_low = info_bando.get("riassunto", "").lower()
+    full_text = f"{titolo_low} {link_low} {req_low} {dest_low} {sintesi_low}"
+
+    # 1. Bandi di esonero/riduzione per reddito generale (ISEE <= 27.000€ o no-tax area)
+    if "situazione economica" in titolo_low or "situazione-economica" in link_low:
+        return False, "Richiede ISEE basso (no-tax area <= 27.000€)"
+
+    # 2. Interventi straordinari o sussidi ER.GO (soglia regionale ~27.700€)
+    if "er.go" in full_text or "er-go" in link_low or "particolare difficoltà" in titolo_low:
+        return False, "Riservato a studenti entro le soglie ISEE ER.GO (~27.700€)"
+
+    # 3. Esonero studenti genitori (il bando fissa espressamente ISEE <= 40.000€)
+    if "diventi genitore" in titolo_low or "genitori" in link_low:
+        return False, "Richiede ISEE pari o inferiore a 40.000€"
+
+    # 4. Riduzione tasse per laureandi in debito di sola prova finale (riservato a ISEE basso)
+    if "sola prova finale" in titolo_low or ("laureand" in link_low and "prova finale" in full_text):
+        return False, "Richiede ISEE entro la soglia di reddito per laureandi"
+
+    # 5. Se tra i requisiti c'è "Reddito" ma non si tratta di riduzioni aperte a tutti gli scaglioni
+    if "reddito" in req_low:
+        # L'esonero per più familiari iscritti prevede riduzione (100€) anche con ISEE > 40.000€
+        if "familiari" in titolo_low or "nucleo familiare" in full_text:
+            return True, "Ammesso (prevista riduzione anche per ISEE > 40.000€)"
+        # Altri bandi basati su reddito con soglia massima
+        if any(w in full_text for w in ["soglia", "non superiore", "inferiore a", "minore o uguale"]):
+            return False, "Richiede ISEE entro soglia restrittiva"
+
+    return True, "Compatibile con ISEE > 40.000€"
+
+
 def e_accessibile_terzo_anno_fisica(info_bando):
-    """Verifica se il bando è accessibile a uno studente del 3° anno di Fisica Triennale."""
+    """Verifica se il bando è accessibile a uno studente del 3° anno di Fisica Triennale con ISEE > 40.000€."""
+    # Controllo ISEE > 40.000€
+    compatibile_isee, _ = e_compatibile_isee_superiore_40k(info_bando)
+    if not compatibile_isee:
+        return False
+
     tipo_corso_low = info_bando["tipo_corso"].lower()
     destinatari_low = info_bando["destinatari"].lower()
     titolo_low = info_bando["titolo"].lower()
@@ -486,11 +535,12 @@ def carica_memoria():
     if os.path.exists(FILE_CACHE_DETTAGLI):
         try:
             with open(FILE_CACHE_DETTAGLI, "r", encoding="utf-8") as f:
-                cache_dettagli = json.load(f)
-                if not isinstance(cache_dettagli, dict):
-                    cache_dettagli = {}
-                for k in cache_dettagli.keys():
-                    memoria_link.add(k)
+                dati_cache = json.load(f)
+                if isinstance(dati_cache, dict):
+                    for k, v in dati_cache.items():
+                        if isinstance(v, dict) and e_compatibile_isee_superiore_40k(v)[0]:
+                            cache_dettagli[k] = v
+                            memoria_link.add(k)
         except Exception as e:
             print(f"⚠️  Errore lettura {FILE_CACHE_DETTAGLI}: {e}")
 
