@@ -17,10 +17,11 @@ Repository unificato per il monitoraggio automatico di tutte le opportunità, bo
   - 📢 **Nuovi bandi in arrivo** annunciati dall'Ateneo.
   - 🏁 **Bandi chiusi o conclusi**.
 - 💶 **Regole di Esclusione e Filtri Personalizzati**:
+  - 🎓 **Filtro Immatricolazione 2024/2025**: ammette solo bandi compatibili con lo studente immatricolato al 1° anno nel 2024/2025 (scarta bandi riservati a immatricolati in altri anni accademici, es. 2025/2026).
   - ❌ **Esclusi bandi per disabilità**: rimossi tutti gli avvisi ed esoneri legati a disabilità, DSA o inabilità.
   - ❌ **Esclusi bandi con ISEE restrittivo (≤ 40k)**: scartati i sussidi ER.GO, l'esonero per genitori e la riduzione per laureandi a basso reddito.
   - ⚠️ **Eccezione esplicita per situazione economica**: mantenuto il bando *Esoneri e riduzioni per situazione economica generale* per monitorare le scadenze della contribuzione studentesca e della dichiarazione ISEE.
-  - ✅ **Bandi monitorati**: incentivi STEAM per merito, borse 150 ore d'Ateneo, incarichi di tutorato didattico (DIFA), tutorato alla pari, esonero magistrale per voto di laurea, riduzione per più familiari universitari.
+  - ✅ **Bandi monitorati**: incentivi STEAM per merito compatibili, borse 150 ore d'Ateneo, incarichi di tutorato didattico (DIFA), tutorato alla pari, esonero magistrale per voto di laurea, riduzione per più familiari universitari.
   - `bandi_attivi.csv`: Tabella completa esportata in foglio di calcolo (Excel, Numbers, Google Sheets).
   - `bandi_attivi.html`: Pagina web responsive con ricerca in tempo reale.
   - `bandi_attivi.md` e `bandi_in_scadenza.md`: Elenchi formattati in Markdown.

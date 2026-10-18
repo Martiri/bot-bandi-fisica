@@ -49,6 +49,8 @@ URL_TUTORATO = f"{BASE_URL}/didattica/incarichi-tutorato"
 CODICI_CORSO_FISICA = "9244"
 TIPO_CORSO_LAUREA = "laurea"
 STRUTTURA_DIFA = "difa"  # Dipartimento di Fisica e Astronomia "Augusto Righi"
+ANNO_IMMATRICOLAZIONE = "2024/2025"  # Immatricolato al 1° anno nell'A.A. 2024/2025
+ANNO_IMMATRICOLAZIONE_START = 2024
 
 # Bandi d'Ateneo 150 ore / collaborazioni / tutorato alla pari (ex repo bandi_tutorato).
 # Non sono legati al codice corso, quindi vengono cercati per parole chiave.
@@ -373,11 +375,42 @@ def e_compatibile_isee_superiore_40k(info_bando):
     return True, "Compatibile con ISEE > 40.000€"
 
 
+def e_compatibile_immatricolazione(info_bando):
+    """
+    Verifica se il bando è accessibile in base all'anno di immatricolazione dello studente (1° anno 2024/2025).
+    - Se il bando specifica vincoli espliciti di immatricolazione (es. 'immatricolati nell'a.a. 2025/2026'),
+      verifica che il 2024/2025 sia tra gli anni ammessi.
+    - Se richiede anni accademici diversi (es. 2025/2026, 2026/2027 o 2023/2024) e non include il 2024/2025, viene scartato.
+    - Se non specifica alcun vincolo di immatricolazione, il bando è considerato aperto.
+    """
+    titolo = info_bando.get("titolo", "")
+    dest = info_bando.get("destinatari", "")
+    req = info_bando.get("requisiti", "")
+    riass = info_bando.get("riassunto", "")
+    full_text = f"{titolo} {dest} {req} {riass}".lower()
+
+    # Cerca menzioni di vincoli di immatricolazione
+    matches = re.findall(r"immatricola\w*[^.!?;\n]{0,80}?(\d{4})[/-](\d{2,4})", full_text, re.IGNORECASE)
+    if matches:
+        anni_citati = [int(m[0]) for m in matches]
+        if ANNO_IMMATRICOLAZIONE_START in anni_citati:
+            return True, f"Compatibile: ammette immatricolati nel {ANNO_IMMATRICOLAZIONE}"
+        anni_str = ", ".join(f"{m[0]}/{m[1]}" for m in matches)
+        return False, f"Richiede immatricolazione in altro anno accademico ({anni_str}) anziché {ANNO_IMMATRICOLAZIONE}"
+
+    return True, f"Compatibile con immatricolazione {ANNO_IMMATRICOLAZIONE}"
+
+
 def e_accessibile_terzo_anno_fisica(info_bando):
-    """Verifica se il bando è accessibile a uno studente del 3° anno di Fisica Triennale con ISEE > 40.000€."""
-    # Controllo ISEE > 40.000€
+    """Verifica se il bando è accessibile a uno studente del 3° anno di Fisica Triennale (immatricolato 2024/2025) con ISEE > 40.000€."""
+    # 1. Controllo ISEE > 40.000€
     compatibile_isee, _ = e_compatibile_isee_superiore_40k(info_bando)
     if not compatibile_isee:
+        return False
+
+    # 2. Controllo Anno di Immatricolazione (1° anno 2024/2025)
+    compatibile_imm, _ = e_compatibile_immatricolazione(info_bando)
+    if not compatibile_imm:
         return False
 
     tipo_corso_low = info_bando["tipo_corso"].lower()
@@ -547,7 +580,11 @@ def carica_memoria():
                 dati_cache = json.load(f)
                 if isinstance(dati_cache, dict):
                     for k, v in dati_cache.items():
-                        if isinstance(v, dict) and e_compatibile_isee_superiore_40k(v)[0]:
+                        if (
+                            isinstance(v, dict)
+                            and e_compatibile_isee_superiore_40k(v)[0]
+                            and e_compatibile_immatricolazione(v)[0]
+                        ):
                             cache_dettagli[k] = v
                             memoria_link.add(k)
         except Exception as e:
