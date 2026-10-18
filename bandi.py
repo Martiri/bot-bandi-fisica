@@ -1,4 +1,5 @@
 import csv
+import html as html_lib
 from datetime import date, datetime, timedelta
 import io
 import json
@@ -32,6 +33,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR, "data")
 FILE_MEMORIA_LEGACY = os.path.join(SCRIPT_DIR, "bandi_trovati.json")
 FILE_CACHE_DETTAGLI = os.path.join(DATA_DIR, "bandi_memoria.json")
+FILE_ULTIMO_INVIO = os.path.join(DATA_DIR, "ultimo_invio.json")
 
 OUTPUT_CSV = os.path.join(SCRIPT_DIR, "bandi_attivi.csv")
 OUTPUT_HTML = os.path.join(SCRIPT_DIR, "bandi_attivi.html")
@@ -47,6 +49,33 @@ URL_TUTORATO = f"{BASE_URL}/didattica/incarichi-tutorato"
 CODICI_CORSO_FISICA = "9244"
 TIPO_CORSO_LAUREA = "laurea"
 STRUTTURA_DIFA = "difa"  # Dipartimento di Fisica e Astronomia "Augusto Righi"
+
+# Bandi d'Ateneo 150 ore / collaborazioni / tutorato alla pari (ex repo bandi_tutorato).
+# Non sono legati al codice corso, quindi vengono cercati per parole chiave.
+KEYWORDS_COLLABORAZIONI = [
+    "150 ore",
+    "attività di collaborazione",
+    "collaborazione degli studenti",
+    "collaborazione studentesca",
+    "part time studentesco",
+    "part-time studentesco",
+]
+KEYWORDS_TUTORATO_PARI = ["tutorato alla pari"]
+# Per il tutorato alla pari (riservato di norma agli studenti del dipartimento)
+# teniamo solo i bandi che riguardano Fisica.
+KEYWORDS_FISICA = ["fisica", "astronomia", "difa"]
+# Sedi diverse da Bologna: i relativi bandi 150 ore non sono di interesse.
+CAMPUS_ESCLUSI = ["rimini", "ravenna", "forlì", "forli", "cesena", "cesenatico", "imola", "ozzano"]
+
+# Soglia (giorni) per l'avviso "in scadenza" nella notifica Telegram
+GIORNI_URGENZA_TELEGRAM = 7
+# Ora italiana minima per l'esecuzione programmata (doppio cron per ora legale/solare)
+ORA_MINIMA_ESECUZIONE = 7
+
+# Link pubblici al repository (usati nel messaggio Telegram)
+REPO_SLUG = os.environ.get("GITHUB_REPOSITORY", "Martiri/bot-bandi-fisica")
+LINK_TABELLA_HTML = f"https://htmlpreview.github.io/?https://github.com/{REPO_SLUG}/blob/main/bandi_attivi.html"
+LINK_TABELLA_CSV = f"https://github.com/{REPO_SLUG}/blob/main/bandi_attivi.csv"
 
 # Lunghezza massima riassunto estratto
 MAX_RIASSUNTO_LEN = 450
@@ -385,6 +414,55 @@ def cerca_bandi_tutorato_difa(session):
     return bandi_tutorato
 
 
+def e_aperto_a_triennale(tipo_corso):
+    """True se tra i tipi di corso compare "Laurea" (triennale) e non solo magistrale.
+    Logica ereditata da bandi_tutorato/bandi_150ore.py."""
+    if not tipo_corso:
+        # Campo assente: meglio un falso positivo che perdere un'opportunità.
+        return True
+    return any(p.strip().lower() == "laurea" for p in tipo_corso.split(","))
+
+
+def cerca_bandi_150ore_ateneo(session):
+    """Bandi d'Ateneo 150 ore / attività di collaborazione / tutorato alla pari
+    aperti alla Laurea triennale (ex repo bandi_tutorato).
+
+    Questi bandi non sono filtrati per codice corso sul portale, quindi si leggono
+    tutte le opportunità aperte e si applicano: parole chiave, apertura alla
+    triennale, sede di Bologna e (per il tutorato alla pari) pertinenza con Fisica.
+    Infine vale comunque il filtro generale e_accessibile_terzo_anno_fisica()."""
+    bandi = []
+    try:
+        r = session.get(URL_OPPORTUNITA, timeout=20)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+        for card in soup.find_all(class_="manifesto-card"):
+            testo_low = card.get_text(" ", strip=True).lower()
+            is_collab = any(k in testo_low for k in KEYWORDS_COLLABORAZIONI)
+            is_tut_pari = any(k in testo_low for k in KEYWORDS_TUTORATO_PARI)
+            if not (is_collab or is_tut_pari):
+                continue
+            if is_tut_pari and not any(k in testo_low for k in KEYWORDS_FISICA):
+                continue
+            h3 = card.find("h3")
+            titolo_low = h3.get_text(" ", strip=True).lower() if h3 else testo_low
+            if any(c in titolo_low for c in CAMPUS_ESCLUSI):
+                continue
+            categoria = "Tutorato alla pari (Ateneo)" if is_tut_pari else "Collaborazioni 150 ore (Ateneo)"
+            info = estrai_dettagli_card(card, categoria)
+            if not info:
+                continue
+            if not e_aperto_a_triennale(info["tipo_corso"]):
+                continue
+            if not e_accessibile_terzo_anno_fisica(info):
+                continue
+            bandi.append(info)
+    except Exception as e:
+        print(f"⚠️  Errore ricerca bandi 150 ore / collaborazioni: {e}")
+
+    return bandi
+
+
 def carica_memoria():
     """Carica i link storici noti da bandi_trovati.json e la cache ricca da data/bandi_memoria.json."""
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -521,10 +599,10 @@ def arricchisci_e_analizza_stati(session, candidati, memoria_link, cache_dettagl
             if stato_prec == "IN_ARRIVO" and stato_oggi == "APERTO":
                 b_info["motivo_apertura"] = "Bando precedentemente memorizzato che ha aperto le candidature"
                 nuove_aperture.append(b_info)
-            elif stato_prec is None and stato_oggi == "APERTO":
+            elif stato_prec is None and is_nuovo and stato_oggi == "APERTO":
                 b_info["motivo_apertura"] = "Nuovo bando appena pubblicato con candidature aperte"
                 nuove_aperture.append(b_info)
-            elif stato_prec is None and stato_oggi == "IN_ARRIVO":
+            elif stato_prec is None and is_nuovo and stato_oggi == "IN_ARRIVO":
                 nuove_anticipazioni.append(b_info)
 
         # Rilevamento bandi in scadenza (candidature aperte con scadenza entro 30 giorni)
@@ -536,7 +614,8 @@ def arricchisci_e_analizza_stati(session, candidati, memoria_link, cache_dettagl
         bandi_attivi.append(b_info)
 
     # Rilevamento chiusure o archiviazioni
-    if not is_first_run:
+    # (saltato se il portale non ha restituito nulla, es. errore di rete, per evitare falsi "chiusi")
+    if not is_first_run and candidati:
         for link, old_bando in list(cache_dettagli.items()):
             if old_bando.get("stato_domanda") != "SCADUTO":
                 gm_old = old_bando.get("giorni_mancanti")
@@ -1046,174 +1125,164 @@ def costruisci_testo_issue(bandi_attivi, nuove_aperture, in_scadenza, nuove_chiu
     return titolo, "\n".join(lines)
 
 
-def invia_issue_github(titolo, corpo, labels=None):
-    """Crea una nuova Issue nel repository GitHub assegnata all'utente per garantire l'invio immediato dell'email di notifica."""
-    token = os.environ.get("GITHUB_TOKEN")
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    if not token or not repo:
-        print("ℹ️  GITHUB_TOKEN o GITHUB_REPOSITORY non presenti (esecuzione locale o senza credenziali).")
-        return False
-
-    if labels is None:
-        labels = ["bando"]
-
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "BotBandiFisica",
-    }
-
-    owner = os.environ.get("GITHUB_REPOSITORY_OWNER") or (repo.split("/")[0] if "/" in repo else "Martiri")
-
-    # 1. Chiudi tutte le issue aperte con questa label per mantenere pulito il repository
-    try:
-        label_query = labels[0] if labels else "bando"
-        list_url = f"https://api.github.com/repos/{repo}/issues?labels={label_query}&state=open&per_page=30"
-        r = requests.get(list_url, headers=headers, timeout=12)
-        if r.status_code == 200:
-            issues = r.json()
-            for iss in issues:
-                close_url = f"https://api.github.com/repos/{repo}/issues/{iss['number']}"
-                try:
-                    requests.patch(close_url, headers=headers, json={"state": "closed"}, timeout=10)
-                    print(f"ℹ️  Chiusa precedente issue archiviata #{iss['number']}")
-                except Exception:
-                    pass
-    except Exception as e:
-        print(f"⚠️  Impossibile verificare/chiudere issue precedenti: {e}")
-
-    # 2. Crea SEMPRE una NUOVA Issue assegnata all'owner
-    # In GitHub, l'apertura di una nuova issue con assegnatario genera l'invio dell'email di notifica con il corpo completo della issue
-    create_url = f"https://api.github.com/repos/{repo}/issues"
-    payload = {
-        "title": titolo,
-        "body": corpo,
-        "labels": labels,
-        "assignees": [owner] if owner else []
-    }
-
-    try:
-        r = requests.post(create_url, headers=headers, json=payload, timeout=12)
-        if r.status_code == 422:
-            # Se fallisce per assignees o label non esistente, ritenta senza assignees e senza labels
-            payload_fallback = {
-                "title": titolo,
-                "body": corpo
-            }
-            r = requests.post(create_url, headers=headers, json=payload_fallback, timeout=12)
-        r.raise_for_status()
-        res_data = r.json()
-        print(f"✅ Issue GitHub creata con successo: #{res_data.get('number')} - {titolo}")
-        return True
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Errore durante la creazione della Issue GitHub: {e}")
-        return False
+def _esc(testo):
+    """Escape HTML per i messaggi Telegram (parse_mode=HTML)."""
+    return html_lib.escape(str(testo or ""), quote=False)
 
 
-def invia_telegram(nuove_aperture, in_scadenza, nuove_chiusure, bandi_attivi, file_allegati=None):
-    """Invia notifiche via Telegram se configurati i relativi secret."""
+def _accorcia(testo, n=150):
+    testo = pulisci_spazi(testo)
+    return testo if len(testo) <= n else testo[: n - 1].rstrip() + "…"
+
+
+def _scadenza_breve(b):
+    """Scadenza leggibile (senza il prefisso 'Scadenza:') + giorni mancanti."""
+    raw = pulisci_spazi(b.get("scadenza", ""))
+    raw = re.sub(r"^(scadenza|periodo)\s*:\s*", "", raw, flags=re.IGNORECASE)
+    gm = b.get("giorni_mancanti")
+    if gm is None:
+        return raw or "n.d."
+    if gm == 0:
+        quando = "<b>oggi!</b>"
+    elif gm == 1:
+        quando = "<b>domani</b>"
+    else:
+        quando = f"tra {gm} gg"
+    return f"{_esc(raw)} ({quando})"
+
+
+def _link_bando(b):
+    parti = [f'<a href="{_esc(b["link"])}">Apri bando</a>']
+    if b.get("pdf_url"):
+        parti.append(f'<a href="{_esc(b["pdf_url"])}">PDF</a>')
+    return " · ".join(parti)
+
+
+def costruisci_messaggi_telegram(bandi_attivi, nuove_aperture, in_scadenza, nuove_chiusure,
+                                 nuove_anticipazioni, now_dt, forza=False):
+    """Costruisce l'unico riepilogo giornaliero (diviso in più messaggi solo se supera
+    il limite di Telegram). Restituisce [] se non c'è nulla di rilevante da notificare."""
+    link_nuovi = {b["link"] for b in nuove_aperture}
+    urgenti = [
+        b for b in in_scadenza
+        if b.get("giorni_mancanti") is not None
+        and b["giorni_mancanti"] <= GIORNI_URGENZA_TELEGRAM
+        and b["link"] not in link_nuovi
+    ]
+
+    if not (nuove_aperture or nuove_anticipazioni or urgenti or nuove_chiusure) and not forza:
+        return []
+
+    data_txt = f"{GIORNI_SETTIMANA[now_dt.weekday()]} {now_dt.day} {list(MESI_ITA)[now_dt.month - 1]} {now_dt.year}"
+    blocchi = [f"🎓 <b>Bandi UniBo · Fisica</b>\n<i>{data_txt}</i>"]
+
+    if nuove_aperture:
+        righe = [f"🆕 <b>Nuovi bandi aperti ({len(nuove_aperture)})</b>"]
+        for b in nuove_aperture:
+            righe.append(
+                f"▸ <b>{_esc(_accorcia(b['titolo']))}</b>\n"
+                f"    🏷 {_esc(b.get('categoria', ''))}\n"
+                f"    ⏰ {_scadenza_breve(b)}\n"
+                f"    🔗 {_link_bando(b)}"
+            )
+        blocchi.append("\n".join(righe))
+
+    if urgenti:
+        righe = [f"🔥 <b>Scadono entro {GIORNI_URGENZA_TELEGRAM} giorni ({len(urgenti)})</b>"]
+        for b in urgenti:
+            righe.append(
+                f"▸ <b>{_esc(_accorcia(b['titolo']))}</b>\n"
+                f"    ⏰ {_scadenza_breve(b)}\n"
+                f"    🔗 {_link_bando(b)}"
+            )
+        blocchi.append("\n".join(righe))
+
+    if nuove_anticipazioni:
+        righe = [f"📢 <b>In arrivo ({len(nuove_anticipazioni)})</b>"]
+        for b in nuove_anticipazioni:
+            righe.append(
+                f"▸ {_esc(_accorcia(b['titolo']))}\n"
+                f"    🗓 {_scadenza_breve(b)} · 🔗 {_link_bando(b)}"
+            )
+        blocchi.append("\n".join(righe))
+
+    if nuove_chiusure:
+        righe = [f"🏁 <b>Chiusi o rimossi ({len(nuove_chiusure)})</b>"]
+        for b in nuove_chiusure[:8]:
+            righe.append(f"▸ <s>{_esc(_accorcia(b.get('titolo', ''), 90))}</s>")
+        if len(nuove_chiusure) > 8:
+            righe.append(f"<i>…e altri {len(nuove_chiusure) - 8}</i>")
+        blocchi.append("\n".join(righe))
+
+    if forza and len(blocchi) == 1:
+        blocchi.append("✅ Nessuna novità oggi.")
+
+    blocchi.append(
+        "━━━━━━━━━━━━━━\n"
+        f"📊 {len(bandi_attivi)} bandi attivi · "
+        f'<a href="{LINK_TABELLA_HTML}">Tabella completa</a> · '
+        f'<a href="{LINK_TABELLA_CSV}">CSV</a>'
+    )
+
+    # Impacchetta i blocchi in messaggi da max ~4000 caratteri (limite Telegram 4096)
+    messaggi, corrente = [], ""
+    for blocco in blocchi:
+        for pezzo in ([blocco] if len(blocco) <= 3900 else blocco.split("\n▸ ")):
+            candidato = f"{corrente}\n\n{pezzo}" if corrente else pezzo
+            if len(candidato) > 3900 and corrente:
+                messaggi.append(corrente)
+                corrente = pezzo
+            else:
+                corrente = candidato
+    if corrente:
+        messaggi.append(corrente)
+    return messaggi
+
+
+def invia_telegram(messaggi):
+    """Invia i messaggi via Telegram. Restituisce True/False, oppure None se non configurato."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
-        return
+        print("ℹ️  TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID non configurati: mostro solo l'anteprima.")
+        return None
 
-    oggi_str = ora_italiana_ora().strftime("%d/%m/%Y")
-    print("  📱 Invio aggiornamenti Telegram...")
-
-    url_msg = f"https://api.telegram.org/bot{token}/sendMessage"
-
-    # 1. Notifica nuove aperture di candidatura
-    if nuove_aperture:
-        for b in nuove_aperture:
-            msg = (
-                f"🚀 <b>CANDIDATURE APERTE — Fisica UniBo</b> ({oggi_str})\n\n"
-                f"📌 <b>{b['titolo']}</b>\n"
-                f"📢 <b>Stato:</b> {b.get('motivo_apertura', 'Candidature aperte')}\n"
-                f"⏰ <b>Scadenza:</b> {b['scadenza']}\n"
-                f"🏷️ <b>Categoria:</b> {b['categoria']}\n"
-                f"🎯 <b>Destinatari:</b> {b.get('destinatari', 'N/D')}\n\n"
-                f"ℹ️ <i>{b['riassunto'][:280]}...</i>\n\n"
-                f"🔗 <a href=\"{b['link']}\">Apri scheda e fai domanda</a>"
-            )
-            if b.get("pdf_url"):
-                msg += f" | <a href=\"{b['pdf_url']}\">Scarica PDF</a>"
-
-            try:
-                requests.post(url_msg, json={
-                    "chat_id": chat_id,
-                    "text": msg,
-                    "parse_mode": "HTML",
-                    "disable_web_page_preview": False
-                }, timeout=10)
-            except Exception as e:
-                print(f"     ⚠️  Errore invio apertura Telegram: {e}")
-
-    # 2. Notifica scadenze imminenti (urgenza <= 7 giorni)
-    scadenze_urgenti = [b for b in in_scadenza if b.get("giorni_mancanti") is not None and b.get("giorni_mancanti") <= 7]
-    if scadenze_urgenti:
-        for b in scadenze_urgenti:
-            gm = b.get("giorni_mancanti", 0)
-            msg = (
-                f"🚨 <b>ATTENZIONE: BANDO IN SCADENZA!</b>\n\n"
-                f"📌 <b>{b['titolo']}</b>\n"
-                f"🔥 <b>Mancano soli {gm} giorni!</b> (Scadenza: {b['scadenza']})\n"
-                f"🔗 <a href=\"{b['link']}\">Presenta domanda subito</a>"
-            )
-            try:
-                requests.post(url_msg, json={
-                    "chat_id": chat_id,
-                    "text": msg,
-                    "parse_mode": "HTML",
-                    "disable_web_page_preview": False
-                }, timeout=10)
-            except Exception as e:
-                print(f"     ⚠️  Errore invio scadenza Telegram: {e}")
-
-    # 3. Notifica chiusure
-    if nuove_chiusure:
-        titoli_chiusi = "\n".join([f"- {b['titolo'][:60]}" for b in nuove_chiusure[:5]])
-        msg = (
-            f"🏁 <b>Bandi Conclusi / Chiusi ({len(nuove_chiusure)})</b>\n\n"
-            f"{titoli_chiusi}"
-        )
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    ok = True
+    for i, testo in enumerate(messaggi):
         try:
-            requests.post(url_msg, json={
+            r = requests.post(url, json={
                 "chat_id": chat_id,
-                "text": msg,
+                "text": testo,
                 "parse_mode": "HTML",
-                "disable_web_page_preview": True
-            }, timeout=10)
+                "disable_web_page_preview": True,
+                # Notifica sonora solo per il primo messaggio del giorno
+                "disable_notification": i > 0,
+            }, timeout=15)
+            if r.status_code != 200:
+                ok = False
+                print(f"❌ Errore Telegram {r.status_code}: {r.text[:300]}")
         except Exception as e:
-            print(f"     ⚠️  Errore invio chiusure Telegram: {e}")
-
-    # Invia tabella CSV come documento allegato
-    if file_allegati:
-        url_doc = f"https://api.telegram.org/bot{token}/sendDocument"
-        for f_path in file_allegati:
-            if os.path.exists(f_path):
-                try:
-                    with open(f_path, "rb") as doc_file:
-                        caption = f"📊 Tabella opportunità Fisica aggiornata al {oggi_str} ({len(bandi_attivi)} bandi attivi)."
-                        requests.post(url_doc, data={"chat_id": chat_id, "caption": caption}, files={"document": doc_file}, timeout=20)
-                except Exception as e:
-                    print(f"     ⚠️  Errore invio documento Telegram ({f_path}): {e}")
+            ok = False
+            print(f"❌ Errore invio Telegram: {e}")
+    if ok:
+        print(f"✅ Riepilogo Telegram inviato ({len(messaggi)} messaggio/i).")
+    return ok
 
 
-def invia_ntfy(titolo, messaggio):
-    """Invia una notifica push via ntfy.sh."""
-    ntfy_topic = os.environ.get("NTFY_TOPIC")
-    if not ntfy_topic:
-        return
-
+def carica_ultimo_invio():
     try:
-        url = f"https://ntfy.sh/{ntfy_topic}"
-        requests.post(url, data=messaggio.encode("utf-8"), headers={
-            "Title": titolo,
-            "Tags": "mortar_board,telescope",
-        }, timeout=10)
-        print(f"✅ Notifica push ntfy.sh inviata a topic {ntfy_topic}")
-    except Exception as e:
-        print(f"⚠️  Errore invio ntfy: {e}")
+        with open(FILE_ULTIMO_INVIO, "r", encoding="utf-8") as f:
+            dati = json.load(f)
+            return dati if isinstance(dati, dict) else {}
+    except Exception:
+        return {}
+
+
+def salva_ultimo_invio(dati):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(FILE_ULTIMO_INVIO, "w", encoding="utf-8") as f:
+        json.dump(dati, f, ensure_ascii=False, indent=2)
 
 
 def aggiorna_step_summary(corpo_markdown):
@@ -1233,11 +1302,23 @@ def aggiorna_step_summary(corpo_markdown):
 def main():
     now_rome = ora_italiana_ora()
     oggi_str = now_rome.strftime("%Y-%m-%d")
+    evento = os.environ.get("GITHUB_EVENT_NAME", "")
+    forza = os.environ.get("FORCE_SEND", "").lower() in ("1", "true", "yes")
 
     print("=" * 65)
     print("  Avvio Monitoraggio Bandi UniBo — Laurea Triennale in Fisica")
     print(f"  Data ed ora italiana: {now_rome.strftime('%d/%m/%Y %H:%M:%S')}")
     print("=" * 65)
+
+    # Guardia per il doppio cron (ora legale/solare): una sola esecuzione al giorno
+    ultimo = carica_ultimo_invio()
+    if evento == "schedule":
+        if now_rome.hour < ORA_MINIMA_ESECUZIONE:
+            print(f"⏭️  Sono le {now_rome.strftime('%H:%M')}: attendo il cron successivo (≥ {ORA_MINIMA_ESECUZIONE}:00).")
+            return
+        if ultimo.get("ultima_esecuzione") == oggi_str:
+            print("⏭️  Controllo di oggi già eseguito: salto per evitare doppioni.")
+            return
 
     session = crea_sessione()
     memoria_link, cache_dettagli = carica_memoria()
@@ -1254,7 +1335,11 @@ def main():
     candidati_tut = cerca_bandi_tutorato_difa(session)
     print(f"   → Trovati {len(candidati_tut)} bandi tutorato.")
 
-    tutti_candidati = candidati_opp + candidati_tut
+    print("🔍 3. Bandi d'Ateneo 150 ore / collaborazioni / tutorato alla pari...")
+    candidati_150 = cerca_bandi_150ore_ateneo(session)
+    print(f"   → Trovati {len(candidati_150)} bandi collaborazione.")
+
+    tutti_candidati = candidati_opp + candidati_tut + candidati_150
 
     # Deduplicazione per link
     dedup = {}
@@ -1265,7 +1350,7 @@ def main():
     print(f"   → Totale bandi unici attivi oggi: {len(candidati_unici)}")
 
     # 2. Arricchimento dettagli e analisi degli stati (aperture, scadenze, chiusure)
-    print("\n🧐 3. Arricchimento dettagli e analisi transizioni di stato...")
+    print("\n🧐 4. Arricchimento dettagli e analisi transizioni di stato...")
     bandi_attivi, nuove_aperture, in_scadenza, nuove_chiusure, nuove_anticipazioni = arricchisci_e_analizza_stati(
         session, candidati_unici, memoria_link, cache_dettagli, oggi_str, is_first_run=is_first_run
     )
@@ -1276,32 +1361,44 @@ def main():
     print(f"   📢 Nuove anticipazioni in arrivo: {len(nuove_anticipazioni)}")
 
     # 3. Generazione tabelle e file esportati
-    print("\n📊 4. Generazione tabelle scaricabili...")
+    print("\n📊 5. Generazione tabelle scaricabili...")
     export_csv(bandi_attivi, OUTPUT_CSV)
     export_markdown_table(bandi_attivi, OUTPUT_MD_ATTIVI, f"Bandi e Opportunità Attive - {oggi_str}")
     export_markdown_table(in_scadenza, OUTPUT_MD_SCADENZE, f"Bandi in Scadenza nei Prossimi 30 Giorni - {oggi_str}")
     export_html_table(bandi_attivi, OUTPUT_HTML, now_rome, nuove_aperture, in_scadenza, nuove_chiusure)
 
-    print(f"  - CSV scaricabile: {OUTPUT_CSV}")
-    print(f"  - HTML interattivo: {OUTPUT_HTML}")
-    print(f"  - Markdown attivi:  {OUTPUT_MD_ATTIVI}")
-    print(f"  - Markdown scadenze:{OUTPUT_MD_SCADENZE}")
-
-    # 4. Gestione Issue GitHub e Step Summary
-    print("\n📬 5. Creazione o aggiornamento notifica via GitHub Issue...")
-    titolo_issue, corpo_issue = costruisci_testo_issue(
+    # 4. Riepilogo nella pagina del workflow (nessuna Issue, nessuna email)
+    _, corpo_summary = costruisci_testo_issue(
         bandi_attivi, nuove_aperture, in_scadenza, nuove_chiusure, nuove_anticipazioni, is_first_run, now_rome
     )
-    invia_issue_github(titolo_issue, corpo_issue, labels=["bando"])
-    aggiorna_step_summary(corpo_issue)
+    aggiorna_step_summary(corpo_summary)
 
-    # 5. Notifiche push esterne (opzionali)
-    invia_telegram(nuove_aperture, in_scadenza, nuove_chiusure, bandi_attivi, file_allegati=[OUTPUT_CSV])
-    ntfy_msg = f"UniBo Fisica: {len(bandi_attivi)} attivi, {len(nuove_aperture)} aperture, {len(in_scadenza)} in scadenza."
-    invia_ntfy(titolo_issue, ntfy_msg)
+    # 5. Unica notifica giornaliera su Telegram (solo se c'è qualcosa di rilevante)
+    print("\n📲 6. Notifica Telegram...")
+    messaggi = costruisci_messaggi_telegram(
+        bandi_attivi, nuove_aperture, in_scadenza, nuove_chiusure, nuove_anticipazioni, now_rome, forza=forza
+    )
+    esito = None
+    if messaggi:
+        print("\n--- ANTEPRIMA TELEGRAM ---")
+        for m in messaggi:
+            print(re.sub(r"<[^>]+>", "", m))
+            print("---")
+        esito = invia_telegram(messaggi)
+    else:
+        print("🔕 Nessuna novità rilevante oggi: nessun messaggio inviato.")
+
+    if esito is False:
+        # Non salviamo memoria/stato: il prossimo cron riproverà a notificare le stesse novità
+        print("❌ Invio Telegram fallito: esco con errore senza aggiornare la memoria.")
+        sys.exit(1)
 
     # 6. Salvataggio memoria aggiornata
     salva_memoria(memoria_link, cache_dettagli)
+    ultimo["ultima_esecuzione"] = oggi_str
+    if esito:
+        ultimo["ultimo_invio"] = now_rome.isoformat(timespec="seconds")
+    salva_ultimo_invio(ultimo)
 
     print("\n" + "=" * 65)
     print(f"🏁 Completato con successo. {len(bandi_attivi)} bandi attivi monitorati.")

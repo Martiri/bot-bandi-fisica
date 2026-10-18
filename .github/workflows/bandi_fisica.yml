@@ -2,15 +2,20 @@ name: Controllo Bandi Fisica UniBo
 
 on:
   schedule:
-    # Mattina alle 05:20 UTC (07:20 ora italiana estiva CEST / 06:20 ora solare CET).
-    # Il minuto non congestionato (:20 anziché :00) evita le code di GitHub Actions
-    # assicurando la consegna della notifica e dell'email sempre prima delle 08:00.
-    - cron: '20 5 * * *'
-  workflow_dispatch: # Permette di avviarlo manualmente dalla scheda Actions con 1 click
+    # Notifica unica giornaliera su Telegram verso le 07:35 ora italiana.
+    # Due cron (05:35 e 06:35 UTC) coprono ora legale e solare: lo script esegue
+    # il controllo solo se a Roma sono già le 07:00 e non l'ha già fatto oggi.
+    - cron: '35 5 * * *'
+    - cron: '35 6 * * *'
+  workflow_dispatch:
+    inputs:
+      forza_invio:
+        description: 'Invia il riepilogo Telegram anche se non ci sono novità'
+        type: boolean
+        default: true
 
 permissions:
   contents: write  # Per salvare storico e tabelle aggiornate
-  issues: write    # Per creare e aggiornare la notifica via Issue
 
 jobs:
   track-and-notify:
@@ -26,19 +31,20 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Installa le dipendenze
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Esecuzione Monitoraggio Bandi e Notifiche
+      - name: Monitoraggio bandi e notifica Telegram
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          FORCE_SEND: ${{ inputs.forza_invio }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
           python bandi.py
 
@@ -46,7 +52,7 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add bandi_trovati.json data/bandi_memoria.json bandi_attivi.csv bandi_attivi.html bandi_attivi.md bandi_in_scadenza.md
+          git add bandi_trovati.json data/ bandi_attivi.csv bandi_attivi.html bandi_attivi.md bandi_in_scadenza.md
           if git diff --staged --quiet; then
             echo "Nessun cambiamento nei file tracciati."
           else
@@ -54,13 +60,17 @@ jobs:
             git push
           fi
 
-      - name: Carica tabelle scaricabili (GitHub Artifacts)
-        uses: actions/upload-artifact@v4
-        with:
-          name: bandi-fisica-tabelle
-          retention-days: 14
-          path: |
-            bandi_attivi.csv
-            bandi_attivi.html
-            bandi_attivi.md
-            bandi_in_scadenza.md
+      - name: Avviso Telegram in caso di errore
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "parse_mode=HTML" \
+              --data-urlencode "text=⚠️ <b>Bot bandi: esecuzione fallita</b>
+          <a href=\"${RUN_URL}\">Apri il log su GitHub</a>" > /dev/null
+          fi
