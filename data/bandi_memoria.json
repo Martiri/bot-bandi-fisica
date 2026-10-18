@@ -137,24 +137,5 @@
     "giorni_mancanti": 12,
     "stato_domanda": "APERTO",
     "data_apertura_domande": "2026-10-18"
-  },
-  "https://bandi.unibo.it/s/amministrazione-generale/incentivi-per-studentesse-e-studenti-iscritti-ai-corsi-di-studio-appartenenti-alle-classi-steam": {
-    "titolo": "Incentivi per studentesse e studenti iscritti ai corsi di studio appartenenti alle classi STEAM",
-    "link": "https://bandi.unibo.it/s/amministrazione-generale/incentivi-per-studentesse-e-studenti-iscritti-ai-corsi-di-studio-appartenenti-alle-classi-steam",
-    "scadenza": "Periodo: settembre - ottobre 2026",
-    "categoria": "Prossimi bandi in uscita",
-    "tipologia": "Borse di studio e agevolazioni",
-    "destinatari": "Studio dal secondo anno in poi, Ho una laurea",
-    "tipo_corso": "Laurea, Laurea magistrale",
-    "requisiti": "Merito, Iscrizione, Specifici da bando",
-    "pdf_url": null,
-    "riassunto": "Tu sei qui: Home / Borse di studio, esoneri, bandi di mobilità e assegni di tutorato alla pari Incentivi per studentesse e studenti iscritti ai corsi di studio appartenenti alle classi STEAM Mi interessa se: Studio dal secondo anno in poi, Ho una laurea Sono iscritto o iscritta all’Università di Bologna al II anno nell’a.a. 2026/2027 e mi sono immatricolato o immatricolata nell’anno accademico 2025/2026 a uno dei corsi appartenenti alle classi ST…",
-    "nota_fonte": "Descrizione tratta dalla scheda informativa web",
-    "first_seen": "2026-10-18",
-    "last_seen": "2026-10-18",
-    "is_nuovo": false,
-    "data_scadenza_parsed": "2026-10-31",
-    "giorni_mancanti": 13,
-    "stato_domanda": "IN_ARRIVO"
   }
 }
