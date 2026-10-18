@@ -322,12 +322,13 @@ def estrai_dettagli_card(card, categoria_sezione="Opportunità"):
 
 def e_compatibile_isee_superiore_40k(info_bando):
     """
-    Verifica se il bando è accessibile a uno studente con ISEE > 40.000€.
-    Esclude tutti i bandi con requisiti di reddito restrittivi (no-tax area,
-    soglie ISEE <= 40k, ER.GO, ecc.), mantenendo invece:
-    - Bandi per merito (incentivi STEAM, esonero laurea magistrale, 150 ore, tutorato)
-    - Agevolazioni aperte anche a ISEE > 40.000€ (es. riduzione per familiari universitari)
-    - Esoneri specifici indipendenti dall'ISEE (disabilità, pensioni inabilità, vittime del dovere)
+    Verifica se il bando è accessibile secondo i filtri dell'utente:
+    - Esclude bandi per disabilità, DSA o inabilità.
+    - Esclude bandi con requisiti ISEE <= 40.000€ (ER.GO, esonero genitori, laureandi a basso reddito).
+    - Mantiene i bandi per merito (STEAM, esonero magistrale, 150 ore, tutorato).
+    - Mantiene le riduzioni aperte anche a ISEE > 40k (es. nucleo familiare).
+    - Mantiene come ECCEZIONE esplicita 'Esoneri e riduzioni per situazione economica generale'
+      per monitorare le scadenze della contribuzione studentesca e della dichiarazione ISEE.
     """
     titolo_low = info_bando.get("titolo", "").lower()
     link_low = info_bando.get("link", "").lower()
@@ -336,23 +337,31 @@ def e_compatibile_isee_superiore_40k(info_bando):
     sintesi_low = info_bando.get("riassunto", "").lower()
     full_text = f"{titolo_low} {link_low} {req_low} {dest_low} {sintesi_low}"
 
-    # 1. Bandi di esonero/riduzione per reddito generale (ISEE <= 27.000€ o no-tax area)
-    if "situazione economica" in titolo_low or "situazione-economica" in link_low:
-        return False, "Richiede ISEE basso (no-tax area <= 27.000€)"
+    # 1. Esclusione bandi e agevolazioni per disabilità, DSA o inabilità
+    parole_disabilita = [
+        "disabilit", "dsa", "inabilit", "handicap", "l. 118/1971", "l.118/1971",
+        "legge 104", "ausili o supporti per lo studio"
+    ]
+    if any(k in full_text for k in parole_disabilita):
+        return False, "Escluso: bando/agevolazione per disabilità, DSA o inabilità"
 
-    # 2. Interventi straordinari o sussidi ER.GO (soglia regionale ~27.700€)
+    # 2. Eccezione esplicita per situazione economica generale (mantenuta per scadenze contribuzione ISEE)
+    if "situazione economica" in titolo_low or "situazione-economica" in link_low:
+        return True, "Ammesso (eccezione richiesta dall'utente per scadenze e calcolo tasse ISEE)"
+
+    # 3. Interventi straordinari o sussidi ER.GO (soglia regionale ~27.700€)
     if "er.go" in full_text or "er-go" in link_low or "particolare difficoltà" in titolo_low:
         return False, "Riservato a studenti entro le soglie ISEE ER.GO (~27.700€)"
 
-    # 3. Esonero studenti genitori (il bando fissa espressamente ISEE <= 40.000€)
+    # 4. Esonero studenti genitori (il bando fissa espressamente ISEE <= 40.000€)
     if "diventi genitore" in titolo_low or "genitori" in link_low:
         return False, "Richiede ISEE pari o inferiore a 40.000€"
 
-    # 4. Riduzione tasse per laureandi in debito di sola prova finale (riservato a ISEE basso)
+    # 5. Riduzione tasse per laureandi in debito di sola prova finale (riservato a ISEE basso)
     if "sola prova finale" in titolo_low or ("laureand" in link_low and "prova finale" in full_text):
         return False, "Richiede ISEE entro la soglia di reddito per laureandi"
 
-    # 5. Se tra i requisiti c'è "Reddito" ma non si tratta di riduzioni aperte a tutti gli scaglioni
+    # 6. Altri requisiti basati su reddito con tetti restrittivi
     if "reddito" in req_low:
         # L'esonero per più familiari iscritti prevede riduzione (100€) anche con ISEE > 40.000€
         if "familiari" in titolo_low or "nucleo familiare" in full_text:
