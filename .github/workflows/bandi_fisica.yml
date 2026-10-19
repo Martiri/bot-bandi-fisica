@@ -12,7 +12,7 @@ on:
       forza_invio:
         description: 'Invia il riepilogo Telegram anche se non ci sono novità'
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write  # Per salvare storico e tabelle aggiornate
