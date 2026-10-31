@@ -46,7 +46,17 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python bandi.py
+          # In caso di errore: secondo tentativo dopo 90s per distinguere un guasto temporaneo da uno persistente
+          for tentativo in 1 2; do
+            if python bandi.py 2>&1 | tee run.log; then
+              exit 0
+            fi
+            if [ "$tentativo" = "1" ]; then
+              echo "::warning::Tentativo 1 fallito, riprovo tra 90 secondi..."
+              sleep 90
+            fi
+          done
+          exit 1
 
       - name: Salva storico e tabelle aggiornate nel repository
         run: |
@@ -60,7 +70,7 @@ jobs:
             git push
           fi
 
-      - name: Avviso Telegram in caso di errore
+      - name: Avviso Telegram in caso di errore persistente
         if: failure()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -68,9 +78,12 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            ERR=$(tail -n 8 run.log 2>/dev/null | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | cut -c1-300)
             curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
               --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
               --data-urlencode "parse_mode=HTML" \
-              --data-urlencode "text=⚠️ <b>Bot bandi: esecuzione fallita</b>
+              --data-urlencode "disable_web_page_preview=true" \
+              --data-urlencode "text=⚠️ <b>Bot bandi: errore persistente</b> (fallito anche al 2° tentativo)
+          <pre>${ERR}</pre>
           <a href=\"${RUN_URL}\">Apri il log su GitHub</a>" > /dev/null
           fi
