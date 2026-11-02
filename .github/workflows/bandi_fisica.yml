@@ -46,6 +46,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+          set -o pipefail
+          echo "Trigger UTC: $(date -u '+%Y-%m-%d %H:%M:%S UTC') | Trigger Rome: $(TZ=Europe/Rome date '+%Y-%m-%d %H:%M:%S %Z') | Event: ${{ github.event_name }}"
           # In caso di errore: secondo tentativo dopo 90s per distinguere un guasto temporaneo da uno persistente
           for tentativo in 1 2; do
             if python bandi.py 2>&1 | tee run.log; then
@@ -67,6 +69,7 @@ jobs:
             echo "Nessun cambiamento nei file tracciati."
           else
             git commit -m "Aggiornamento bandi e tabelle [skip ci]"
+            git pull --rebase origin main || true
             git push
           fi
 
